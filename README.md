@@ -21,7 +21,7 @@ It allows you to change simulation parameters (tumor/immune kinetics, RT fractio
 
 Click the badge below to launch the interactive app directly in your browser (no installation required):
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/vsandul/RIT-bokeh-app/main?urlpath=proxy/5006/rit_bokeh_app)
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/vsandul/RIT_bokeh-app/main?urlpath=proxy/5006/rit_bokeh_app)
 
 ⚠️ First launch may take several minutes while Binder builds the environment.
 
