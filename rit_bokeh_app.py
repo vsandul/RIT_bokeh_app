@@ -46,6 +46,8 @@ def LQmodel(d, a, b):
 
 
 ST_default = 0.5
+aL_default, bL_default = 0.2, 0.14
+
 
 
 # ========= Controls =========
@@ -56,25 +58,25 @@ pc_defaults = dict(
     stepsize=0.1, mintime=0.0, maxtime=60.0, maxvol=1000.0, maxvol2=1000.0
 )
 
-def spin(label, value, step, low=None, high=None):
-    return Spinner(title=label, value=value, step=step, low=low, high=high, width=80)
+def spin(label, value, step, low=None, high=None, fmt="0.00"):
+    return Spinner(title=label, value=value, step=step, low=low, high=high, width=80, format=fmt)
 
-sp_a1 = spin("a1", pc_defaults["a1"], 0.01)
-sp_b1 = spin("b1", pc_defaults["b1"], 0.01)
-sp_a2 = spin("a2", pc_defaults["a2"], 0.01)
-sp_b2 = spin("b2", pc_defaults["b2"], 0.01)
-sp_amp = spin("amplification", pc_defaults["amplification"], 0.01, 0, 5)
+sp_a1 = spin("a1", pc_defaults["a1"], 0.01, fmt="0.00")
+sp_b1 = spin("b1", pc_defaults["b1"], 0.01, fmt="0.00")
+sp_a2 = spin("a2", pc_defaults["a2"], 0.01, fmt="0.00")
+sp_b2 = spin("b2", pc_defaults["b2"], 0.01, fmt="0.00")
+sp_amp = spin("amplification", pc_defaults["amplification"], 0.01, 0, 5, fmt="0.00")
 
-sp_fc1b = spin("fc1base", pc_defaults["fc1base"], 0.001, 0, 2)
-sp_fc1h = spin("fc1high", pc_defaults["fc1high"], 0.001, 0, 2)
-sp_fc4b = spin("fc4base", pc_defaults["fc4base"], 1e-6, 0, 5)
-sp_fc4h = spin("fc4high", pc_defaults["fc4high"], 1e-6, 0, 5)
+sp_fc1b = spin("fc1base", pc_defaults["fc1base"], 0.001, 0, 2, fmt="0.000")
+sp_fc1h = spin("fc1high", pc_defaults["fc1high"], 0.001, 0, 2, fmt="0.000")
+sp_fc4b = spin("fc4base", pc_defaults["fc4base"], 1e-4, 0, 5, fmt="0.0000")
+sp_fc4h = spin("fc4high", pc_defaults["fc4high"], 1e-4, 0, 5, fmt="0.0000")
 
-sp_dt   = spin("stepsize (dt)", pc_defaults["stepsize"], 0.001, 0.001, 3)
-sp_tmin = spin("mintime", pc_defaults["mintime"], 0.5, 0, 100)
-sp_tmax = spin("maxtime", pc_defaults["maxtime"], 0.5, 1, 365)
-sp_mv   = spin("maxvol", pc_defaults["maxvol"], 100, 0, 1e6)
-sp_mv2  = spin("maxvol2", pc_defaults["maxvol2"], 100, 0, 1e6)
+sp_dt   = spin("stepsize (dt)", pc_defaults["stepsize"], 0.001, 0.001, 3,fmt="0.000")
+sp_tmin = spin("mintime", pc_defaults["mintime"], 0.5, 0, 100, fmt="0.0")
+sp_tmax = spin("maxtime", pc_defaults["maxtime"], 0.5, 1, 365, fmt="0.0")
+sp_mv   = spin("maxvol", pc_defaults["maxvol"], 100, 0, 1e6, fmt="0")
+sp_mv2  = spin("maxvol2", pc_defaults["maxvol2"], 100, 0, 1e6, fmt="0")
 
 # Treatment plan inputs
 fx_input = TextInput(title="Fx scheme; e.g. 1,2,3,..", value="1,2,3,4,5,6,7,8,9")
@@ -89,8 +91,12 @@ kRad_slider = Slider(title="kRad, d-1", start=0.0, end=5.0, step=0.01, value=0.1
 use_lq = CheckboxGroup(labels=["Use LQ model for ST"], active=[])
 radType_box = CheckboxGroup(labels=["Carbon RT mode"], active=[])
 dose_for_ST = Slider(title="Dose for LQ ST (Gy)", start=0, end=10, step=0.1, value=2.0,width=200)
-aT_spin = spin("a_T", 0.1, 0.005, 0, 2)
-bT_spin = spin("b_T", 0.05, 0.005, 0, 2)
+aT_spin = spin("a_T", 0.1, 0.01, 0, 2, fmt="0.00")
+bT_spin = spin("b_T", 0.05, 0.01, 0, 2, fmt="0.00")
+
+# Lymphocyte radiosensetivity
+aL_spin = spin("a_L", aL_default, 0.01, 0, 2, fmt="0.00")
+bL_spin = spin("b_L", bL_default, 0.01, 0, 2, fmt="0.00")
 
 # Update button (also live-on-change; the button is handy after big edits)
 btn = Button(label="Update simulation", button_type="primary", width=140)
@@ -209,6 +215,8 @@ def reset_all():
     dose_for_ST.value = 2.0
     aT_spin.value = 0.1
     bT_spin.value = 0.05
+    aL_spin.value = aL_default
+    bL_spin.value = bL_default
 
     # Refresh plots
     update()
@@ -230,6 +238,8 @@ def update(_=None):
         fr = float(fr_slider.value)
         g  = float(g_slider.value)
         kRad = float(kRad_slider.value)
+        aL = float(aL_spin.value)
+        bL = float(bL_spin.value)
 
         # ST from slider or LQ model
         if 0 in use_lq.active:
@@ -241,7 +251,7 @@ def update(_=None):
         radType = "carbon" if 0 in radType_box.active else "photon"
         # Compute model
         Tarr, TMarr, T2arr, Aarr, Larr, LMarr, LGarr, imuteff, timearr, darr = rit2_modified_fast(
-            fx, d_L, startIT, stopIT, ST, fr, params, g, kRad, radType=radType
+            fx, d_L, startIT, stopIT, ST, fr, params, g, kRad, radType=radType, aL=aL, bL=bL
         )
 
         # Update sources
@@ -271,7 +281,7 @@ value_widgets = [
     sp_a1, sp_b1, sp_a2, sp_b2, sp_amp, sp_fc1b, sp_fc1h, sp_fc4b, sp_fc4h,
     sp_dt, sp_tmin, sp_tmax, sp_mv, sp_mv2,
     fx_input, dL_slider, it_slider, ST_slider, fr_slider, g_slider, kRad_slider,
-    dose_for_ST, aT_spin, bT_spin
+    dose_for_ST, aT_spin, bT_spin, aL_spin, bL_spin
 ]
 for w in value_widgets:
     w.on_change("value", _cb)
@@ -297,12 +307,13 @@ pc_col1 = column(  # Section: Plan constants (vertical)
 
 plan_section = column(  # Section: Treatment plan (vertical)
     Div(text="<b>Treatment plan</b>"),
-    row(dL_slider, fx_input,  g_slider,  ST_slider, column(radType_box, use_lq) ),
+    row(dL_slider, fx_input,  g_slider,  aL_spin, bL_spin, ST_slider, column(radType_box, use_lq) ),
     row(
         fr_slider,
         it_slider,
         kRad_slider,
-        dose_for_ST, aT_spin, bT_spin,
+        aT_spin, bT_spin,
+        dose_for_ST, 
         column(btn, reset_btn)              
     ),
     sizing_mode="stretch_width"
