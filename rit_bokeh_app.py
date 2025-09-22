@@ -41,7 +41,6 @@ curdoc().theme = Theme(json={
 
 
 def LQmodel(d, a, b):
-    # Dummy fallback; replace with your true LQmodel
     return np.exp(-(a*d + b*d*d))
 
 
@@ -51,7 +50,7 @@ aL_default, bL_default = 0.2, 0.14
 
 
 # ========= Controls =========
-# Plan constants (both number inputs + a few helpful sliders)
+# Plan constants 
 pc_defaults = dict(
     a1=2.5, b1=0.45, a2=1.2, b2=0.4, amplification=0.5,
     fc1base=0.02, fc1high=0.6, fc4base=0.1254, fc4high=0.1254,
@@ -101,9 +100,6 @@ bL_spin = spin("b_L", bL_default, 0.01, 0, 2, fmt="0.00")
 # Update button (also live-on-change; the button is handy after big edits)
 btn = Button(label="Update simulation", button_type="primary", width=140)
 reset_btn = Button(label="Reset to defaults", button_type="warning", width=140)
-
-# In[5]:
-
 
 # ========= Data sources for 9 panels =========
 src_Tsum = ColumnDataSource(data=dict(x=[], y=[]))
@@ -270,11 +266,8 @@ def update(_=None):
         status.text = f"<b style='color:red'>Error:</b> {e}"
 
 # Wire updates (live)
-# ---- Wiring: use proper on_change signatures ----
-# ---- Wiring: use proper on_change signatures ----
 def _cb(attr, old, new):
     update()
-
 
 # Widgets that change on "value"
 value_widgets = [
@@ -299,13 +292,13 @@ reset_btn.on_click(reset_all)
 update()
 
 # ========= Layout =========
-pc_col1 = column(  # Section: Plan constants (vertical)
+pc_col1 = column(  # Section: Plan constants 
     Div(text="<b>Plan constants</b> (you can type numbers)"),
     row(sp_a1, sp_b1, sp_a2, sp_b2, sp_amp, sp_fc1b, sp_fc1h, sp_fc4b, sp_fc4h, sp_dt, sp_tmin, sp_tmax, sp_mv, sp_mv2),
     sizing_mode="stretch_width"
 )
 
-plan_section = column(  # Section: Treatment plan (vertical)
+plan_section = column(  # Section: Treatment plan
     Div(text="<b>Treatment plan</b>"),
     row(dL_slider, fx_input,  g_slider,  aL_spin, bL_spin, ST_slider, column(radType_box, use_lq) ),
     row(
