@@ -11,18 +11,6 @@ It is **not validated for clinical use** and must not be used to guide patient t
 
 ---
 
-## 📊 Features
-- Interactive **grid of plots** showing:
-  - Tumor dynamics and signal (`Tarr`, `TMarr`, `T2arr`, `Aarr`)
-  - Lymphocyte dynamics (`Larr`, `LMarr`, `LGarr`, `darr`, `imuteffarr`)
-- Adjustable **plan constants** (α/β, amplification, fc1/4 parameters, etc.)
-- Adjustable **treatment plan** (fractions, dose to LN, IT start/stop, fr, g, kRad)
-- Option to compute tumor survival `ST` via **LQ model** or direct slider
-- Switch between **Photon / Carbon RT mode**
-- Reset button to restore defaults
-
----
-
 ## 🧩 Model Background
 
 This dashboard implements and extends the **predictive biophysical model of combined radiotherapy and immunotherapy** developed by  
@@ -39,6 +27,18 @@ This dashboard implements and extends the **predictive biophysical model of comb
   → Controlled by a new parameter **`kRad`**.  
 
 These extensions enable more flexible exploration of abscopal dynamics and immune–RT interactions.
+
+---
+
+## 📊 Features
+- Interactive **grid of plots** showing:
+  - Tumor dynamics and signal (`Tarr`, `TMarr`, `T2arr`, `Aarr`)
+  - Lymphocyte dynamics (`Larr`, `LMarr`, `LGarr`, `darr`, `imuteffarr`)
+- Adjustable **plan constants** (α/β, amplification, fc1/4 parameters, etc.)
+- Adjustable **treatment plan** (fractions, dose to LN, IT start/stop, fr, g, kRad)
+- Option to compute tumor survival `ST` via **LQ model** or direct slider
+- Switch between **Photon / Carbon RT mode**
+- Reset button to restore defaults
 
 ---
 
