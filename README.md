@@ -99,4 +99,4 @@ Model based on **Friedrich et al. (2022)**, with modifications to include abscop
 ---
 
 ## 📜 License
-MIT License (or specify your own).
+Project is held and distributed under MIT License.
