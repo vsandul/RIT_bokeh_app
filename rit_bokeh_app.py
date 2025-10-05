@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 import numpy as np
 import matplotlib.pyplot as plt
 import time
@@ -84,7 +81,7 @@ it_slider = RangeSlider(title="[startIT, stopIT], d", start=0, end=120, step=0.5
 ST_slider = Slider(title="ST (tumor survival / Fx)", start=0.0, end=1.0, step=0.01, value=ST_default, width=200)
 fr_slider = Slider(title="fr (LN dose fraction)", start=0.0, end=1.0, step=0.01, value=0.2, width=200)
 g_slider  = Slider(title="g (fraction of L in TME)", start=0.0, end=1.0, step=0.01, value=0.63, width=200)
-kRad_slider = Slider(title="kRad, d-1", start=0.0, end=5.0, step=0.01, value=0.10, width=200)
+kRad_slider = Slider(title="kRad, fx-1", start=0.0, end=5.0, step=0.01, value=0.10, width=200)
 
 # Optional LQ override for ST
 use_lq = CheckboxGroup(labels=["Use LQ model for ST"], active=[])
@@ -123,15 +120,15 @@ def fig(title, y_axis_type="linear", y_range=None):
     p.yaxis.formatter = PrintfTickFormatter(format="%.1e")
     return p
 
-p_Tsum = fig("Tarr + TMarr", y_range=(0, 5e8))
-p_TM   = fig("TMarr")
-p_T2   = fig("T2arr", y_range=(0, 5e8))
-p_A    = fig("Aarr")
-p_L    = fig("Larr + LMarr")
-p_LM   = fig("LMarr")
-p_LG   = fig("LGarr")
-p_d    = fig("darr")
-p_imu  = fig("imuteffarr")
+p_Tsum = fig("T + TM", y_range=(0, 5e8))
+p_TM   = fig("TM")
+p_T2   = fig("T2", y_range=(0, 5e8))
+p_A    = fig("A")
+p_L    = fig("L + LM")
+p_LM   = fig("LM")
+p_LG   = fig("LG")
+p_d    = fig("d")
+p_imu  = fig("imuteff")
 
 p_Tsum.line("x", "y", source=src_Tsum, line_width=2)
 p_TM.line("x", "y", source=src_TM, line_width=2)
@@ -159,7 +156,7 @@ def parse_fx(text):
             a, b = int(float(a)), int(float(b))
             out.extend(list(range(min(a,b), max(a,b)+1)))
         else:
-            out.append(int(float(token)))
+            out.append(float(token))
     # Keep unique, sorted
     out = sorted(set(out))
     return out
