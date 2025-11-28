@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import time
 
 from simulationFunctions import *
-from simulationFunctions_Fast import *
 print(f"korr = {korr}")
 
 
@@ -36,7 +35,6 @@ curdoc().theme = Theme(json={
 })
 
 
-
 def LQmodel(d, a, b):
     return np.exp(-(a*d + b*d*d))
 
@@ -45,13 +43,14 @@ ST_default = 0.5
 aL_default, bL_default = 0.2, 0.14
 
 
-
 # ========= Controls =========
 # Plan constants 
 pc_defaults = dict(
     a1=2.5, b1=0.45, a2=1.2, b2=0.4, amplification=0.5,
     fc1base=0.02, fc1high=0.6, fc4base=0.1254, fc4high=0.1254,
-    stepsize=0.1, mintime=0.0, maxtime=60.0, maxvol=1000.0, maxvol2=1000.0
+    stepsize=0.1, mintime=0.0, maxtime=60.0, maxvol=1000.0, maxvol2=1000.0,
+    T1start=1e5, T2start=1e5, Lstart=100.0, LGstart=100.0,  # <<< NEW
+    d_max=np.inf                                               # <<< NEW
 )
 
 def spin(label, value, step, low=None, high=None, fmt="0.00"):
@@ -68,16 +67,30 @@ sp_fc1h = spin("fc1high", pc_defaults["fc1high"], 0.001, 0, 2, fmt="0.000")
 sp_fc4b = spin("fc4base", pc_defaults["fc4base"], 1e-4, 0, 5, fmt="0.0000")
 sp_fc4h = spin("fc4high", pc_defaults["fc4high"], 1e-4, 0, 5, fmt="0.0000")
 
-sp_dt   = spin("stepsize (dt)", pc_defaults["stepsize"], 0.001, 0.001, 3,fmt="0.000")
+sp_dt   = spin("stepsize (dt)", pc_defaults["stepsize"], 0.001, 0.001, 3, fmt="0.000")
 sp_tmin = spin("mintime", pc_defaults["mintime"], 0.5, 0, 100, fmt="0.0")
 sp_tmax = spin("maxtime", pc_defaults["maxtime"], 0.5, 1, 365, fmt="0.0")
 sp_mv   = spin("maxvol", pc_defaults["maxvol"], 100, 0, 1e6, fmt="0")
 sp_mv2  = spin("maxvol2", pc_defaults["maxvol2"], 100, 0, 1e6, fmt="0")
 
+# <<< NEW: initial conditions and d_max
+sp_T1start = spin("T1start", pc_defaults["T1start"], 1e4, 0, 1e9, fmt="0")
+sp_T2start = spin("T2start", pc_defaults["T2start"], 1e4, 0, 1e9, fmt="0")
+sp_Lstart  = spin("Lstart",  pc_defaults["Lstart"],  1,   0, 1e6, fmt="0")
+sp_LGstart = spin("LGstart", pc_defaults["LGstart"], 1,   0, 1e6, fmt="0")
+sp_dmax    = spin("d_max",   pc_defaults["d_max"],   1e7, -np.inf, np.inf, fmt="0")
+
 # Treatment plan inputs
 fx_input = TextInput(title="Fx scheme; e.g. 1,2,3,..", value="1,2,3,4,5,6,7,8,9")
 dL_slider = Slider(title="d_L (Gy to L in TME)", start=0, end=20, step=0.1, value=2.0, width=200)
-it_slider = RangeSlider(title="[startIT, stopIT], d", start=0, end=120, step=0.5, value=(1, 20),width=200)
+
+# <<< NEW: IT periods text instead of RangeSlider
+it_input = TextInput(
+    title="IT periods (days)",
+    value="1-20",
+    width=200
+)
+
 ST_slider = Slider(title="ST (tumor survival / Fx)", start=0.0, end=1.0, step=0.01, value=ST_default, width=200)
 fr_slider = Slider(title="fr (LN dose fraction)", start=0.0, end=1.0, step=0.01, value=0.2, width=200)
 g_slider  = Slider(title="g (fraction of L in TME)", start=0.0, end=1.0, step=0.01, value=0.63, width=200)
@@ -148,6 +161,8 @@ grid = gridplot([[p_Tsum, p_TM, p_T2, p_A,],
 def parse_fx(text):
     # Allow ranges like 1-5 and individual values like 7,9
     out = []
+    if not text:
+        return [np.inf]
     for token in text.replace(" ", "").split(","):
         if not token:
             continue
@@ -161,6 +176,32 @@ def parse_fx(text):
     out = sorted(set(out))
     return out
 
+# <<< NEW: parse IT periods as list of (start, stop)
+def parse_ITperiods(text):
+    """
+    Parse IT periods from a string like:
+      "1-20" or "1-20,30-40"
+    Returns:
+      None   if empty/whitespace
+      list of (start, stop) floats otherwise
+    """
+    text = text.strip()
+    if not text:
+        return None
+
+    periods = []
+    for token in text.replace(" ", "").split(","):
+        if not token:
+            continue
+        if "-" not in token:
+            raise ValueError(f"Invalid IT token '{token}'. Use 'start-stop'.")
+        start, stop = token.split("-")
+        start = float(start)
+        stop  = float(stop)
+        periods.append((start, stop))
+    return periods
+
+
 def gather_parameters():
     return dict(
         a1=float(sp_a1.value), b1=float(sp_b1.value),
@@ -172,7 +213,11 @@ def gather_parameters():
         mintime=float(sp_tmin.value),
         maxtime=float(sp_tmax.value),
         maxvol=float(sp_mv.value),
-        maxvol2=float(sp_mv2.value)
+        maxvol2=float(sp_mv2.value),
+        T1start=float(sp_T1start.value),   # <<< NEW
+        T2start=float(sp_T2start.value),   # <<< NEW
+        Lstart=float(sp_Lstart.value),     # <<< NEW
+        LGstart=float(sp_LGstart.value)    # <<< NEW
     )
 
 
@@ -192,11 +237,16 @@ def reset_all():
     sp_tmax.value = pc_defaults["maxtime"]
     sp_mv.value   = pc_defaults["maxvol"]
     sp_mv2.value  = pc_defaults["maxvol2"]
+    sp_T1start.value = pc_defaults["T1start"]   # <<< NEW
+    sp_T2start.value = pc_defaults["T2start"]   # <<< NEW
+    sp_Lstart.value  = pc_defaults["Lstart"]    # <<< NEW
+    sp_LGstart.value = pc_defaults["LGstart"]   # <<< NEW
+    sp_dmax.value    = pc_defaults["d_max"]     # <<< NEW
 
     # --- Treatment plan ---
     fx_input.value = "1,2,3,4,5,6,7,8,9"
     dL_slider.value = 2.0
-    it_slider.value = (1, 20)
+    it_input.value = "1-20"          # <<< NEW (instead of it_slider)
     ST_slider.value = ST_default
     fr_slider.value = 0.2
     g_slider.value  = 0.63
@@ -227,12 +277,13 @@ def update(_=None):
 
         params = gather_parameters()
         d_L = float(dL_slider.value)
-        startIT, stopIT = it_slider.value
+        ITperiods = parse_ITperiods(it_input.value)  # <<< NEW
         fr = float(fr_slider.value)
         g  = float(g_slider.value)
         kRad = float(kRad_slider.value)
         aL = float(aL_spin.value)
         bL = float(bL_spin.value)
+        d_max = float(sp_dmax.value) if sp_dmax.value >=0 else np.inf       # <<< NEW
 
         # ST from slider or LQ model
         if 0 in use_lq.active:
@@ -242,9 +293,21 @@ def update(_=None):
             ST = float(ST_slider.value)
             
         radType = "carbon" if 0 in radType_box.active else "photon"
-        # Compute model
-        Tarr, TMarr, T2arr, Aarr, Larr, LMarr, LGarr, imuteff, timearr, darr = rit2_modified_fast(
-            fx, d_L, startIT, stopIT, ST, fr, params, g, kRad, radType=radType, aL=aL, bL=bL
+
+        # Compute model using rit_simulation instead of rit2_modified_fast  <<< NEW
+        Tarr, TMarr, T2arr, Aarr, Larr, LMarr, LGarr, imuteff, timearr, darr = rit_simulation(
+            fx=fx,
+            dose=d_L,
+            ITperiods=ITperiods,
+            ST=ST,
+            fr=fr,
+            parameters=params,
+            g=g,
+            kRadL=kRad,
+            radType=radType,
+            aL=aL,
+            bL=bL,
+            d_max=d_max
         )
 
         # Update sources
@@ -270,7 +333,8 @@ def _cb(attr, old, new):
 value_widgets = [
     sp_a1, sp_b1, sp_a2, sp_b2, sp_amp, sp_fc1b, sp_fc1h, sp_fc4b, sp_fc4h,
     sp_dt, sp_tmin, sp_tmax, sp_mv, sp_mv2,
-    fx_input, dL_slider, it_slider, ST_slider, fr_slider, g_slider, kRad_slider,
+    sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax,   # <<< NEW
+    fx_input, dL_slider, it_input, ST_slider, fr_slider, g_slider, kRad_slider,
     dose_for_ST, aT_spin, bT_spin, aL_spin, bL_spin
 ]
 for w in value_widgets:
@@ -291,16 +355,23 @@ update()
 # ========= Layout =========
 pc_col1 = column(  # Section: Plan constants 
     Div(text="<b>Plan constants</b> (you can type numbers)"),
-    row(sp_a1, sp_b1, sp_a2, sp_b2, sp_amp, sp_fc1b, sp_fc1h, sp_fc4b, sp_fc4h, sp_dt, sp_tmin, sp_tmax, sp_mv, sp_mv2),
+    row(
+        sp_a1, sp_b1, sp_a2, sp_b2, sp_amp,
+        sp_fc1b, sp_fc1h, sp_fc4b, sp_fc4h,
+        sp_dt, sp_tmin, sp_tmax, sp_mv, sp_mv2
+    ),
+    row(  # <<< NEW: start values + d_max in same block
+        sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax
+    ),
     sizing_mode="stretch_width"
 )
 
 plan_section = column(  # Section: Treatment plan
     Div(text="<b>Treatment plan</b>"),
-    row(dL_slider, fx_input,  g_slider,  aL_spin, bL_spin, ST_slider, column(radType_box, use_lq) ),
+    row(dL_slider, fx_input, g_slider, aL_spin, bL_spin, ST_slider, column(radType_box, use_lq)),
     row(
         fr_slider,
-        it_slider,
+        it_input,        # <<< NEW (instead of it_slider)
         kRad_slider,
         aT_spin, bT_spin,
         dose_for_ST, 
@@ -310,10 +381,6 @@ plan_section = column(  # Section: Treatment plan
 )
 
 
-curdoc().add_root(column(pc_col1, plan_section, grid))
+curdoc().add_root(column(pc_col1, plan_section, grid, status))
 
 curdoc().title = "RIT Interactive (Bokeh)"
-
-
-
-

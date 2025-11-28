@@ -1,102 +1,121 @@
-# Radio-Immune Therapy Interactive Plots
+# Radio-Immune Therapy Interactive Dashboard
 
-This repository contains an interactive **Bokeh dashboard** for exploring tumor–immune dynamics in combined radio-immunotherapy (RIT).  
-It allows you to change simulation parameters (tumor/immune kinetics, RT fractionation, immunotherapy timing, etc.) and immediately see their effect on model outputs.
+This repository contains an interactive **Bokeh application** for exploring tumor–immune dynamics in **combined radio-immunotherapy (RIT)**.  
+The tool allows you to modify radiotherapy fractionation, immunotherapy schedules, and biophysical parameters — and instantly visualize model behavior.
 
 ---
 
 ## ⚠️ Disclaimer
-This application is intended **for research and educational purposes only**.  
-It is **not validated for clinical use** and must not be used to guide patient treatment decisions.  
+
+This software is intended **only for research and educational purposes**.  
+It is **not validated clinically** and must **not** be used to guide patient treatment decisions.
 
 ---
 
-## 🧩 Model Background
+## 🧩 Scientific Background
 
-This dashboard implements and extends the **predictive biophysical model of combined radiotherapy and immunotherapy** developed by  
-**T. Friedrich, M. Scholz, and M. Durante**:  
+This dashboard is based on the predictive biophysical model of combined radiotherapy and immunotherapy developed by:
 
+> **T. Friedrich, M. Scholz, M. Durante**  
 > *A Predictive Biophysical Model of the Combined Action of Radiation Therapy and Immunotherapy of Cancer*  
-> International Journal of Radiation Oncology, Biology, Physics (IJROBP), 2022.  
-> DOI: [10.1016/j.ijrobp.2022.03.030](https://doi.org/10.1016/j.ijrobp.2022.03.030)
-
-### 🔧 Modifications in this implementation:
-- The fraction of antigen-specific lymphocytes migrating to the **abscopal tumor** vs. the **primary tumor** is no longer fixed (previously assumed equal).  
-  → Controlled by a new parameter **`g`**.  
-- **Radiation-induced lymphocyte depletion** is now explicitly modeled for lymphocytes migrating to the abscopal site.  
-  → Controlled by a new parameter **`kRad`**.  
-
-These extensions enable more flexible exploration of abscopal dynamics and immune–RT interactions.
-
----
+> *International Journal of Radiation Oncology, Biology, Physics* (IJROBP), 2022  
+> DOI: https://doi.org/10.1016/j.ijrobp.2022.03.030
 
 ## 📊 Features
-- Interactive **grid of plots** showing:
-  - Tumor dynamics and signal (`Tarr`, `TMarr`, `T2arr`, `Aarr`)
-  - Lymphocyte dynamics (`Larr`, `LMarr`, `LGarr`, `darr`, `imuteffarr`)
-- Adjustable **plan constants** (α/β, amplification, fc1/4 parameters, etc.)
-- Adjustable **treatment plan** (fractions, dose to LN, IT start/stop, fr, g, kRad)
-- Option to compute tumor survival `ST` via **LQ model** or direct slider
-- Switch between **Photon / Carbon RT mode**
-- Reset button to restore defaults
+
+### Interactive visualization panels
+Nine dynamic plots:
+
+- Tumor populations: `Tarr`, `TMarr`, `T2arr`
+- Antigen signal: `Aarr`
+- Lymphocyte populations: `Larr`, `LMarr`, `LGarr`
+- Damage signal: `darr`
+- Immunity effectiveness: `imuteffarr`
+
+### Fully interactive treatment design
+- Radiotherapy fractionation scheme (`fx`)
+- Dose to lymphocytes in TME (`d_L`)
+- **Multiple immunotherapy intervals**
+- Lymph node dose fraction (`fr`)
+- Lymphocyte distribution parameter (`g`)
+- Radiation-induced lymphocyte depletion (`kRad`)
+- Optional **LQ model** for tumor survival `ST`
+- Select **Photon** or **Carbon** RT mode
+- Adjustable `a_L`, `b_L` for lymphocyte radiosensitivity
+
+### Adjustable plan constants
+- Tumor growth parameters (`a1`, `b1`, `a2`, `b2`)
+- Antigen amplification
+- fc1/fc4 immune activation parameters (PD-1/CTLA-4 parameters)
+- Numerical ODE settings (`stepsize`, `maxtime`)
+- **Initial values**: `T1start`, `T2start`, `Lstart`, `LGstart`
+- **Antitumor lymphocyte production cap** `d_max` (0 = ∞)
 
 ---
 
 ## 🚀 Run Online (Binder)
 
-Click the badge below to launch the interactive app directly in your browser (no installation required):
+Launch directly in your browser—no installation required:
 
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/vsandul/RIT_bokeh_app/main?urlpath=proxy/5006/rit_bokeh_app)
 
-⚠️ First launch may take several minutes while Binder builds the environment.
+> ⚠️ Binder builds may take several minutes on first launch.
 
 ---
 
 ## 💻 Run Locally
 
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/vsandul/RIT_bokeh_app.git
-   cd RIT_bokeh_app
-   ```
+### 1. Clone the repository
+```bash
+git clone https://github.com/vsandul/RIT_bokeh_app.git
+cd RIT_bokeh_app
+```
 
-2. Install requirements (preferably in a virtualenv or conda env):
-   ```bash
-   pip install -r requirements.txt
-   ```
+### 2. Install dependencies
+```bash
+pip install -r requirements.txt
+```
 
-3. Start the app:
-   ```bash
-   bokeh serve --show rit_bokeh_app.py
-   ```
-   This will open your browser at [http://localhost:5006/rit_bokeh_app](http://localhost:5006/rit_bokeh_app).
+### 3. Run the Bokeh server
+```bash
+bokeh serve --show rit_bokeh_app.py
+```
+
+Your browser will open automatically at:
+
+**http://localhost:5006/rit_bokeh_app**
 
 ---
 
-## 📂 Repository structure
+## 📂 Repository Structure
+
 ```
 .
-├── rit_bokeh_app.py             # Main Bokeh dashboard application
-├── simulationFunctions_Fast.py  # file with RIT model (fast vectorized calculations)
-├── simulationFunctions.py       # file with RIT model (old, slow calculations)
-├── requirements.txt             # Dependencies for Binder/local run
-└── README.md                    # This file
+├── rit_bokeh_app.py            # Main Bokeh dashboard
+├── simulationFunctions.py      # RIT model (reference version)
+├── requirements.txt            # Dependencies for Binder/local execution
+└── README.md                   # Documentation
 ```
 
 ---
 
 ## ⚙️ Requirements
+
 - Python 3.8+
 - Bokeh ≥ 3.0
 - NumPy, SciPy
 
 ---
 
-## 🧑‍🤝‍🧑 Credits
-Developed as part of the **PhD project on radiation-induced lymphopenia and combined radio-immunotherapy modeling** at GSI Helmholtz Centre for Heavy Ion Research.  
-Model based on **Friedrich et al. (2022)**, with modifications to include abscopal lymphocyte distribution (`g`) and radiation-induced lymphocyte depletion (`kRad`).
+## 🧑‍🔬 Author & Context
+
+Developed as part of a **PhD research project on radiation-induced lymphopenia and combined radio-immunotherapy modeling** at  
+**GSI Helmholtz Centre for Heavy Ion Research**.
+
+Model based on **Friedrich et al. (2022)** with added mechanisms for abscopal lymphocyte flow (`g`) and radiation-induced depletion (`kRad`).
 
 ---
 
 ## 📜 License
-Project is held and distributed under MIT License.
+
+This project is released under the **MIT License**.

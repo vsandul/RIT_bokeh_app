@@ -1,673 +1,442 @@
 import numpy as np
-from scipy.special import gamma, gammainc, gammaincc
+from scipy.special import gammainc, gammaincc, gammaln   # regularized lower/upper, and log Γ
 from scipy.integrate import quad
+
+from typing import Dict, Tuple, Sequence, Union, Optional
 
 
 ########################################
 ########### HELPER FUNCTIONS ###########
 ########################################
 
-def Ginc(a,x):
-    return gammaincc(a,x)*gamma(a)
-    
+# Stable upper incomplete gamma Γ(a, x) = gammaincc(a, x) * Γ(a)
+def Ginc(a, x):
+    a = np.asarray(a, dtype=float)
+    x = np.asarray(x, dtype=float)
+    return np.exp(gammaln(a)) * gammaincc(a, x)
+
+def _Gamma(a):
+    # Γ(a) = exp(gammaln(a)) (stable)
+    return np.exp(gammaln(a))
+
 def df(k1, k2, k3, t):
-    if t < 1/k1:
-        t1 = (1 - (k1*t)**k3) * (1 - np.exp(-k2*t))
-        t2 = 1/k1 + (-1 + np.exp(-(k2/k1)))/k2 - 1/(k1 + k1*k3)
-        t3 = ((k2/k1)**-k3 * (gamma(1 + k3) - Ginc(1 + k3, k2/k1)))/k2
-        return t1 / (t2 + t3)#, t1,t2,t3
-    else:
-        return 0
+    """
+    Vectorized df. Works with scalar or array t.
+    Original piecewise:
+      if t < 1/k1:  t1 / (t2 + t3)
+      else: 0
+    """
+    # Cast to arrays for vectorization (scalars will still work)
+    t  = np.asarray(t, dtype=float)
+    k1 = float(k1); k2 = float(k2); k3 = float(k3)
+
+    invk1 = 1.0 / k1
+    ratio = k2 / k1
+
+    # Precompute constants (independent of t)
+    # t2
+    t2 = invk1 + (np.exp(-ratio) - 1.0) / k2 - 1.0 / (k1 * (1.0 + k3))
+    # t3 = (k1/k2)^k3 * (Γ(1+k3) - Ginc(1+k3, ratio)) / k2  = (k1/k2)^k3 * γ(1+k3, ratio) / k2
+    Gamma_1k3   = _Gamma(1.0 + k3)
+    Gupper_rat  = np.exp(gammaln(1.0 + k3)) * gammaincc(1.0 + k3, ratio)
+    Glower_rat  = Gamma_1k3 - Gupper_rat  # lower incomplete gamma γ(a,x)
+    t3 = (k1 / k2) ** k3 * Glower_rat / k2
+
+    denom = t2 + t3  # constant
+
+    out = np.zeros_like(t, dtype=float)
+    mask = t < invk1
+    if np.any(mask):
+        tm = t[mask]
+        # t1 = (1 - (k1*t)^k3) * (1 - exp(-k2*t))
+        # use -expm1 for better small-argument accuracy: 1 - exp(-x) = -expm1(-x)
+        t1 = (1.0 - (k1 * tm) ** k3) * (-np.expm1(-k2 * tm))
+        out[mask] = t1 / denom
+    return out if out.shape else float(out)  # return scalar when scalar in
 
 def idf(k1, k2, k3, t):
-    if t == 0:
-        return 1
-    elif t < 1/k1:
-        t1 = np.exp(-(k2/k1)) - np.exp(-k2*t) + np.exp(-(k2/k1))*k3 - np.exp(-k2*t)*k3
-        t2 = (k2*k3)/k1 - k2*t - k2*k3*t + k2*t*(k1*t)**k3
-        t3 = (k2/k1)**-k3*(1+k3)*Ginc(1+k3, k2/k1)
-        t4 = (1+k3)*(k1*t)**k3*(k2*t)**-k3*Ginc(1+k3, k2*t)
-        t5 = 1/k1 + (-1 + np.exp(-(k2/k1)))/k2 - 1/(k1 + k1*k3)
-        t6 = ((k2/k1)**-k3*(gamma(1+k3) - Ginc(1+k3, k2/k1)))
-        return (t1 + t2 - t3 + t4) / (k2*(1+k3)*(t5 + t6/k2))
-    else:
-        return 0
-    
-korr, err = quad(lambda t: df(1/2, 0.2, 20, t), 0, 2)
+    """
+    Vectorized idf. Works with scalar or array t.
+    Original piecewise:
+      t == 0      -> 1
+      0 < t < 1/k1: (t1 + t2 - t3 + t4) / (k2*(1+k3)*(t5 + t6/k2))
+      t >= 1/k1   -> 0
+    """
+    t  = np.asarray(t, dtype=float)
+    k1 = float(k1); k2 = float(k2); k3 = float(k3)
+
+    invk1 = 1.0 / k1
+    ratio = k2 / k1
+    c_pow = (k1 / k2) ** k3
+
+    # constants (no t)
+    Gamma_1k3  = _Gamma(1.0 + k3)
+    Gupper_rat = np.exp(gammaln(1.0 + k3)) * gammaincc(1.0 + k3, ratio)
+    Glower_rat = Gamma_1k3 - Gupper_rat
+
+    # t5 = 1/k1 + (exp(-k2/k1) - 1)/k2 - 1/(k1*(1+k3))
+    t5 = invk1 + (np.exp(-ratio) - 1.0) / k2 - 1.0 / (k1 * (1.0 + k3))
+    # t6 = (k1/k2)^k3 * (Γ(1+k3) - Ginc(1+k3, ratio)) = (k1/k2)^k3 * γ(1+k3, ratio)
+    t6 = c_pow * Glower_rat
+
+    denom_const = k2 * (1.0 + k3) * (t5 + t6 / k2)  # constant denominator
+
+    out = np.zeros_like(t, dtype=float)
+
+    # t == 0 -> 1
+    mask0 = (t == 0.0)
+    out[mask0] = 1.0
+
+    # 0 < t < 1/k1
+    mask = (t > 0.0) & (t < invk1)
+    if np.any(mask):
+        tm = t[mask]
+        exp_neg_ratio = np.exp(-ratio)
+        exp_neg_k2t   = np.exp(-k2 * tm)
+
+        # Simplifications:
+        # t1 = (1+k3)*(exp(-ratio) - exp(-k2*t))
+        t1 = (1.0 + k3) * (exp_neg_ratio - exp_neg_k2t)
+
+        # t2 = k2*(k3/k1 - t*(1+k3) + t*(k1*t)^k3)
+        t2 = k2 * ( (k3 / k1) - tm*(1.0 + k3) + tm * (k1 * tm) ** k3 )
+
+        # t3 = (k1/k2)^k3 * (1+k3) * Ginc(1+k3, ratio)   (upper incomplete gamma at ratio)  [constant]
+        t3 = c_pow * (1.0 + k3) * Gupper_rat
+
+        # t4 = (1+k3) * (k1/k2)^k3 * Ginc(1+k3, k2*t)    (upper incomplete gamma at k2*t)
+        Gupper_k2t = np.exp(gammaln(1.0 + k3)) * gammaincc(1.0 + k3, k2 * tm)
+        t4 = (1.0 + k3) * c_pow * Gupper_k2t
+
+        num = t1 + t2 - t3 + t4
+        out[mask] = num / denom_const
+
+    # t >= 1/k1 remains 0
+    return out if out.shape else float(out)
+
+
+korr, err = quad(lambda tau: float(df(0.5, 0.2, 20, tau)), 0.0, 2.0)
 
 
 ########################################
 ######### SIMULATION FUNCTIONS #########
 ########################################
-# In total, 4 funtions (see below)
 
-# 1. Primary + abscopal tumor, no kRad (damage to abscopal lymphocytes)
-# -=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-def rit2(fx, dose, startIT, stopIT, ST, fr, parameters, g=0.5):
-    # Extract variables from the dictionary
-    a1 = parameters["a1"]
-    b1 = parameters["b1"]
-    a2 = parameters["a2"]
-    b2 = parameters["b2"]
-    amplification = parameters["amplification"]
-    fc1base = parameters["fc1base"]
-    fc1high = parameters["fc1high"]
-    fc4base = parameters["fc4base"]
-    fc4high = parameters["fc4high"]
-    stepsize = parameters["stepsize"]
-    maxtime = parameters["maxtime"]
-    
-    
-    steps = int(np.ceil(maxtime / stepsize))
-    Tarr = np.zeros(steps)
-    TMarr = np.zeros(steps)
-    T2arr = np.zeros(steps)
-    Aarr = np.zeros(steps)
-    Larr = np.zeros(steps)
-    LGarr = np.zeros(steps)
-    LMarr = np.zeros(steps)
-    imuteffarr = np.zeros(steps)
-    timearr = np.zeros(steps)
-    
-    darr = np.zeros(steps)
+# Expect these to exist in your environment:
+# - df(k1, k2, k3, t)  : kernel (must accept vector dt or be safe with np.vectorize)
+# - idf(k1, k2, k3, t) : its integral (same note)
+# - optionally a global 'korr' scalar; if absent we'll default to 1.0 here.
 
-    Tstart = 1e5
-    LStart = 100
-    LGStart = 100
+from typing import Sequence, Tuple, Dict, Optional, Union
+import numpy as np
 
-    mut1 = a1 / ((Tstart / 1e6) ** b1)
-    mut2 = a2 / ((Tstart / 1e6) ** b2)
+# Helper: normalize ITperiods into a list of (start, stop) tuples
+def _normalize_it_periods(ITperiods):
+    """
+    Normalize ITperiods into a list of (start, stop) float tuples.
 
-    lam = 0.15
-    rho = 0.15
-    mul = -0.15
-    psi = 7
+    Allowed forms:
+      - None, [] or ()                      -> []
+      - (start, stop) or [start, stop]      -> [(start, stop)]
+      - [(start1, stop1), (start2, stop2), ...]
+    """
+    if ITperiods is None:
+        return []
 
-    k1 = min(max(0.04 * dose, 1 / 7), 1 / 2)
-    k3 = 2.8
-    k2 = 0.2
-    SL = max(np.exp(-0.2 * dose - 0.14 * dose ** 2), 0.001)
-    SLn = max(np.exp(-0.2 * fr * dose - 0.14 * fr ** 2 * dose ** 2), 0.001)
+    if isinstance(ITperiods, (list, tuple)):
+        if len(ITperiods) == 0:
+            return []
 
-    Tarr[0] = Tstart
-    T2arr[0] = Tstart
-    TMarr[0] = 0
-    Larr[0] = LStart
-    LGarr[0] = LGStart
-    LMarr[0] = 0
-    Aarr[0] = rho * (1 / (lam + mut1) + 1 / (lam + mut2)) * Tstart
-    
-    darr[0] = 0
+        # Single interval as (start, stop) or [start, stop]
+        if len(ITperiods) == 2 and not isinstance(ITperiods[0], (list, tuple)):
+            return [(float(ITperiods[0]), float(ITperiods[1]))]
 
-    dfarr = np.array([df(0.5, 0.2, 20, k * stepsize) for k in range(steps)])
-    timearr[0] = 0
+        # Otherwise: iterable of pairs
+        intervals = []
+        for item in ITperiods:
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                raise ValueError("Each IT period must be a pair (start, stop).")
+            intervals.append((float(item[0]), float(item[1])))
+        return intervals
 
-    for i in range(1, steps):
-        time = stepsize * (i - 1)
-        timeeval = stepsize * (i - 2)
-        fxeval = [t for t in fx if t <= timeeval]
+    raise TypeError("ITperiods must be None, a pair (start, stop), or a sequence of such pairs.")
 
-        fc1 = fc1high if startIT < timeeval <= stopIT else fc1base
-        fc4 = fc4high if startIT < timeeval <= stopIT else fc4base
-
-        d = stepsize * sum(
-            (
-                (fc4base if stepsize * (i - 1 - k) < startIT or stepsize * (i - 1 - k) > stopIT else fc4high) / korr
-            ) * 
-            (SLn ** len([x for x in fx if x <= stepsize * (i - 1 - k)])) *
-            Aarr[i - 1 - k] *
-            dfarr[k]
-            for k in range(i - 1)
-        )
-        
-        darr[i] = d
-
-        muteff = (
-            1e-12 if Tarr[i - 1] == 0 and TMarr[i - 1] == 0 else
-            a1 / ((Tarr[i - 1] + TMarr[i - 1]) / 1e6) ** b1
-        )
-
-        muteff2 = (
-            1e-12 if T2arr[i - 1] == 0 else
-            a2 / (T2arr[i - 1] / 1e6) ** b2
-        )
-
-        delT = stepsize * (
-            muteff * Tarr[i - 1] -
-            fc1 * (Larr[i - 1] + LMarr[i - 1])
-        ) - sum(
-            (1 - ST) * Tarr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        )
-
-        delTM = sum(
-            (1 - ST) * Tarr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        ) + stepsize * (
-            sum(
-                (1 - ST) * Tarr[int(np.floor(fxeval[k] / stepsize))] *
-                np.exp(imuteffarr[i - 1] - imuteffarr[int(np.floor(fxeval[k] / stepsize))]) *
-                (muteff * idf(k1, k2, k3, timeeval - fxeval[k]) - df(k1, k2, k3, timeeval - fxeval[k]))
-                for k in range(len(fxeval))
-            ) if len(fxeval) > 0 else 0
-        )
-
-        delT2 = stepsize * (muteff2 * T2arr[i - 1] - fc1 * amplification * LGarr[i - 1])
-
-        delA = stepsize * (
-            -lam * Aarr[i - 1] +
-            rho * (Tarr[i - 1] + T2arr[i - 1]) +
-            psi * (
-                sum(
-                    (1 - ST) * Tarr[int(np.floor(fxeval[k] / stepsize))] *
-                    np.exp(imuteffarr[i - 1] - imuteffarr[int(np.floor(fxeval[k] / stepsize))]) *
-                    df(k1, k2, k3, timeeval - fxeval[k])
-                    for k in range(len(fxeval))
-                ) if len(fxeval) > 0 else 0
-            )
-        )
-
-        delL = stepsize * (
-            mul * Larr[i - 1] + g * 2 * d - fc1 * Larr[i - 1]
-        ) - sum(
-            (1 - SL) * Larr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        )
-
-        delLM = sum(
-            (1 - SL) * Larr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        ) + stepsize * (
-            sum(
-                (1 - SL) * Larr[int(np.floor(fxeval[k] / stepsize))] *
-                np.exp(mul * (timeeval - fxeval[k])) *
-                (mul * idf(k1, k2, k3, timeeval - fxeval[k]) - df(k1, k2, k3, timeeval - fxeval[k]))
-                for k in range(len(fxeval))
-            ) if len(fxeval) > 0 else 0
-        ) - stepsize * fc1 * LMarr[i - 1]
-
-        delLG = stepsize * (mul * LGarr[i - 1] + (1 - g) * 2 * d)
-
-        timearr[i] = time
-        Tarr[i] = max(0, Tarr[i - 1] + delT)
-        TMarr[i] = max(0, TMarr[i - 1] + delTM)
-        T2arr[i] = max(0, T2arr[i - 1] + delT2)
-        Aarr[i] = max(0, Aarr[i - 1] + delA)
-        Larr[i] = max(0, Larr[i - 1] + delL)
-        LMarr[i] = max(0, LMarr[i - 1] + delLM)
-        LGarr[i] = max(0, LGarr[i - 1] + delLG)
-        imuteffarr[i] = imuteffarr[i - 1] + stepsize * muteff
-
-    return Tarr, TMarr, T2arr, Aarr, Larr, LMarr, LGarr, imuteffarr, timearr, darr
-
-
-
-# 2. Only primary tumor, no abscopal site
-# -=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=
-def rit1(fx, dose, startIT, stopIT, ST, fr, parameters, g=0.5):
-    # Extract variables from the dictionary
-    a1 = parameters["a1"]
-    b1 = parameters["b1"]
-    fc1base = parameters["fc1base"]
-    fc1high = parameters["fc1high"]
-    fc4base = parameters["fc4base"]
-    fc4high = parameters["fc4high"]
-    stepsize = parameters["stepsize"]
-    maxtime = parameters["maxtime"]
-    
-    steps = int(np.ceil(maxtime / stepsize))
-
-    # Initialize arrays
-    Tarr = np.zeros(steps)
-    TMarr = np.zeros(steps)
-    Aarr = np.zeros(steps)
-    Larr = np.zeros(steps)
-    LMarr = np.zeros(steps)
-    imuteffarr = np.zeros(steps)
-    timearr = np.zeros(steps)
-    
-    darr = np.zeros(steps)
-
-    # Initial conditions and parameters
-    Tstart = 1e5
-    LStart = 100
-    mut = a1 / ((Tstart / 1e6) ** b1)
-    lam = 0.15
-    rho = 0.15
-    mul = -0.15
-    psi = 7
-    k1 = min(max(0.04 * dose, 1 / 7), 1 / 2)
-    k3 = 2.8
-    k2 = 0.2
-    SL = max(np.exp(-0.2 * dose - 0.14 * dose ** 2), 0.001)
-    SLn = max(np.exp(-0.2 * fr * dose - 0.14 * fr ** 2 * dose ** 2), 0.001)
-
-    # Initial values
-    Tarr[0] = Tstart
-    TMarr[0] = 0
-    Larr[0] = LStart
-    LMarr[0] = 0
-    Aarr[0] = rho / (lam + mut) * Tstart
-    dfarr = np.array([df(0.5, 0.2, 20, k * stepsize) for k in range(steps)])
-    timearr[0] = 0
-    
-    darr[0] = 0
-
-    # Main loop
-    for i in range(1, steps):
-        time = stepsize * (i - 1)
-        timeeval = stepsize * (i - 2)
-        fxeval = [t for t in fx if t <= timeeval]
-
-        fc1 = fc1high if startIT < timeeval <= stopIT else fc1base
-        fc4 = fc4high if startIT < timeeval <= stopIT else fc4base
-
-        # Compute d
-        d = stepsize * sum(
-            (
-                (fc4base if stepsize * (i - 1 - k) < startIT or stepsize * (i - 1 - k) > stopIT else fc4high) / korr
-            ) *
-            (SLn ** len([x for x in fx if x <= stepsize * (i - 1 - k)])) *
-            Aarr[i - 1 - k] *
-            dfarr[k]
-            for k in range(i - 1)
-        )
-        darr[i] = d
-
-        # Compute muteff
-        muteff = (
-            1e-12 if Tarr[i - 1] == 0 and TMarr[i - 1] == 0 else
-            a1 / ((Tarr[i - 1] + TMarr[i - 1]) / 1e6) ** b1
-        )
-
-        # Compute delT
-        delT = stepsize * (
-            muteff * Tarr[i - 1] - fc1 * (Larr[i - 1] + LMarr[i - 1])
-        ) - sum(
-            (1 - ST) * Tarr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        )
-
-        # Compute delTM
-        delTM = sum(
-            (1 - ST) * Tarr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        ) + stepsize * (
-            sum(
-                (1 - ST) * Tarr[int(np.floor(fxeval[k] / stepsize))] *
-                np.exp(imuteffarr[i - 1] - imuteffarr[int(np.floor(fxeval[k] / stepsize))]) *
-                (muteff * idf(k1, k2, k3, timeeval - fxeval[k]) - df(k1, k2, k3, timeeval - fxeval[k]))
-                for k in range(len(fxeval))
-            ) if len(fxeval) > 0 else 0
-        )
-
-        # Compute delA
-        delA = stepsize * (
-            -lam * Aarr[i - 1] +
-            rho * Tarr[i - 1] +
-            psi * (
-                sum(
-                    (1 - ST) * Tarr[int(np.floor(fxeval[k] / stepsize))] *
-                    np.exp(imuteffarr[i - 1] - imuteffarr[int(np.floor(fxeval[k] / stepsize))]) *
-                    df(k1, k2, k3, timeeval - fxeval[k])
-                    for k in range(len(fxeval))
-                ) if len(fxeval) > 0 else 0
-            )
-        )
-
-        # Compute delL
-        delL = stepsize * (
-            mul * Larr[i - 1] + g * 2 * d - fc1 * Larr[i - 1]
-        ) - sum(
-            (1 - SL) * Larr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        )
-
-        # Compute delLM
-        delLM = sum(
-            (1 - SL) * Larr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        ) + stepsize * (
-            sum(
-                (1 - SL) * Larr[int(np.floor(fxeval[k] / stepsize))] *
-                np.exp(mul * (timeeval - fxeval[k])) *
-                (mul * idf(k1, k2, k3, timeeval - fxeval[k]) - df(k1, k2, k3, timeeval - fxeval[k]))
-                for k in range(len(fxeval))
-            ) if len(fxeval) > 0 else 0
-        ) - stepsize * fc1 * LMarr[i - 1]
-
-        # Update arrays
-        timearr[i] = time
-        Tarr[i] = max(0, Tarr[i - 1] + delT)
-        TMarr[i] = max(0, TMarr[i - 1] + delTM)
-        Aarr[i] = max(0, Aarr[i - 1] + delA)
-        Larr[i] = max(0, Larr[i - 1] + delL)
-        LMarr[i] = max(0, LMarr[i - 1] + delLM)
-        imuteffarr[i] = imuteffarr[i - 1] + stepsize * muteff
-
-    return Tarr, TMarr, Aarr, Larr, LMarr, imuteffarr, timearr, darr
-
-
-# 3. Only primary tumor, no abscopal site; 2 periods of immunotherapy
-# -=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-def rit1moore(fx, dose, startIT, stopIT, startIT2, stopIT2, ST, fr, parameters, g=0.5):
-    # Extract variables from the dictionary
-    a1 = parameters["a1"]
-    b1 = parameters["b1"]
-    fc1base = parameters["fc1base"]
-    fc1high = parameters["fc1high"]
-    fc4base = parameters["fc4base"]
-    fc4high = parameters["fc4high"]
-    stepsize = parameters["stepsize"]
-    maxtime = parameters["maxtime"]
-    
-    steps = int(np.ceil(maxtime / stepsize))
-
-    # Initialize arrays
-    Tarr = np.zeros(steps)
-    TMarr = np.zeros(steps)
-    Aarr = np.zeros(steps)
-    Larr = np.zeros(steps)
-    LMarr = np.zeros(steps)
-    imuteffarr = np.zeros(steps)
-    timearr = np.zeros(steps)
-    
-    darr = np.zeros(steps)
-
-    # Initial conditions and parameters
-    Tstart = 1e5
-    LStart = 100
-    mut = a1 / ((Tstart / 1e6) ** b1)
-    lam = 0.15
-    rho = 0.15
-    mul = -0.15
-    psi = 7
-    k1 = min(max(0.04 * dose, 1 / 7), 1 / 2)
-    k3 = 2.8
-    k2 = 0.2
-    SL = max(np.exp(-0.2 * dose - 0.14 * dose ** 2), 0.001)
-    SLn = max(np.exp(-0.2 * fr * dose - 0.14 * fr ** 2 * dose ** 2), 0.001)
-
-    # Initial values
-    Tarr[0] = Tstart
-    TMarr[0] = 0
-    Larr[0] = LStart
-    LMarr[0] = 0
-    Aarr[0] = rho / (lam + mut) * Tstart
-    dfarr = np.array([df(0.5, 0.2, 20, k * stepsize) for k in range(steps)])
-    timearr[0] = 0
-    
-    darr[0] = 0
-
-    # Main loop
-    for i in range(1, steps):
-        time = stepsize * (i - 1)
-        timeeval = stepsize * (i - 2)
-        fxeval = [t for t in fx if t <= timeeval]
-
-        fc1 = (
-            fc1high
-            if (startIT < timeeval <= stopIT or startIT2 < timeeval <= stopIT2)
-            else fc1base
-        )
-        fc4 = (
-            fc4high
-            if (startIT < timeeval <= stopIT or startIT2 < timeeval <= stopIT2)
-            else fc4base
-        )
-
-        # Compute d
-        d = stepsize * sum(
-            (
-                (fc4high if (startIT <= stepsize * (i - 1 - k) <= stopIT) or
-                 (startIT2 <= stepsize * (i - 1 - k) <= stopIT2) else fc4base) / korr
-            ) *
-            (SLn ** len([x for x in fx if x <= stepsize * (i - 1 - k)])) *
-            Aarr[i - 1 - k] *
-            dfarr[k]
-            for k in range(i - 1)
-        )
-        
-        darr[i] = d
-
-        # Compute muteff
-        muteff = (
-            1e-12 if Tarr[i - 1] == 0 and TMarr[i - 1] == 0 else
-            a1 / ((Tarr[i - 1] + TMarr[i - 1]) / 1e6) ** b1
-        )
-
-        # Compute delT
-        delT = stepsize * (
-            muteff * Tarr[i - 1] - fc1 * (Larr[i - 1] + LMarr[i - 1])
-        ) - sum(
-            (1 - ST) * Tarr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        )
-
-        # Compute delTM
-        delTM = sum(
-            (1 - ST) * Tarr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        ) + stepsize * (
-            sum(
-                (1 - ST) * Tarr[int(np.floor(fxeval[k] / stepsize))] *
-                np.exp(imuteffarr[i - 1] - imuteffarr[int(np.floor(fxeval[k] / stepsize))]) *
-                (muteff * idf(k1, k2, k3, timeeval - fxeval[k]) - df(k1, k2, k3, timeeval - fxeval[k]))
-                for k in range(len(fxeval))
-            ) if len(fxeval) > 0 else 0
-        )
-
-        # Compute delA
-        delA = stepsize * (
-            -lam * Aarr[i - 1] +
-            rho * Tarr[i - 1] +
-            psi * (
-                sum(
-                    (1 - ST) * Tarr[int(np.floor(fxeval[k] / stepsize))] *
-                    np.exp(imuteffarr[i - 1] - imuteffarr[int(np.floor(fxeval[k] / stepsize))]) *
-                    df(k1, k2, k3, timeeval - fxeval[k])
-                    for k in range(len(fxeval))
-                ) if len(fxeval) > 0 else 0
-            )
-        )
-
-        # Compute delL
-        delL = stepsize * (
-            mul * Larr[i - 1] + g * 2 * d - fc1 * Larr[i - 1]
-        ) - sum(
-            (1 - SL) * Larr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        )
-
-        # Compute delLM
-        delLM = sum(
-            (1 - SL) * Larr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        ) + stepsize * (
-            sum(
-                (1 - SL) * Larr[int(np.floor(fxeval[k] / stepsize))] *
-                np.exp(mul * (timeeval - fxeval[k])) *
-                (mul * idf(k1, k2, k3, timeeval - fxeval[k]) - df(k1, k2, k3, timeeval - fxeval[k]))
-                for k in range(len(fxeval))
-            ) if len(fxeval) > 0 else 0
-        ) - stepsize * fc1 * LMarr[i - 1]
-
-        # Update arrays
-        timearr[i] = time
-        Tarr[i] = max(0, Tarr[i - 1] + delT)
-        TMarr[i] = max(0, TMarr[i - 1] + delTM)
-        Aarr[i] = max(0, Aarr[i - 1] + delA)
-        Larr[i] = max(0, Larr[i - 1] + delL)
-        LMarr[i] = max(0, LMarr[i - 1] + delLM)
-        imuteffarr[i] = imuteffarr[i - 1] + stepsize * muteff
-
-    return Tarr, TMarr, Aarr, Larr, LMarr, imuteffarr, timearr, darr
-
-
-# 4. Primary + abscopal tumor, modified to use kRad (damage to abscopal lymphocytes)
+# Primary + abscopal tumor (optional), modified to use kRad (damage to abscopal lymphocytes)
 # Dose is the biological dose to lyphocytes in the TME; fr = D_LN / D_TME (bio, for lymphocytes)
-# -=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-def rit2_modified(fx, dose, startIT, stopIT, ST, fr, parameters, g=0.5, kRadL=0., radType='photon', aL=0.2, bL=0.14):
-    # Extract variables from the dictionary
-    a1 = parameters["a1"]
-    b1 = parameters["b1"]
-    a2 = parameters["a2"]
-    b2 = parameters["b2"]
-    amplification = parameters["amplification"]
-    fc1base = parameters["fc1base"]
-    fc1high = parameters["fc1high"]
-    fc4base = parameters["fc4base"]
-    fc4high = parameters["fc4high"]
-    stepsize = parameters["stepsize"]
-    maxtime = parameters["maxtime"]
-    
-    
+def rit_simulation(
+    fx: Sequence[float],
+    dose: float,
+    ITperiods = None,
+    ST: float = 0.0,
+    fr: float = 1.0,
+    parameters: Dict[str, float] = None,
+    g: float = 0.5,
+    kRadL: float = 0.0,
+    radType: str = "photon",
+    aL: float = 0.2,
+    bL: float = 0.14,
+    d_max: float = np.inf,
+    *,
+    return_dict: bool = False,
+    korr_override: Optional[float] = None,
+) -> Union[
+    Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,
+          np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    Dict[str, np.ndarray]
+]:
+    """
+    General RIT simulator (primary + abscopal tumor) with:
+      - Multiple immunotherapy (IT) windows via ITperiods.
+      - Optional custom initial values T1start, T2start, Lstart, LGstart from `parameters`.
+      - Cap on d(t) via d_max.
+      - kRadL term for lymphocyte damage in abscopal compartment.
+
+    ITperiods:
+      * None or []                        -> no IT
+      * (start, stop) or [start, stop]    -> single window
+      * [(start1, stop1), (start2, stop2), ...] -> multiple windows
+
+    One IT mask is used for both fc1 and fc4:
+      it_mask = OR over all (start < t <= stop) or [start, stop] (see below).
+    """
+    if parameters is None:
+        raise ValueError("`parameters` dict must be provided.")
+
+    # ----- unpack parameters -----
+    a1 = float(parameters["a1"])
+    b1 = float(parameters["b1"])
+    a2 = float(parameters["a2"])
+    b2 = float(parameters["b2"])
+    amplification = float(parameters["amplification"])
+    fc1base = float(parameters["fc1base"])
+    fc1high = float(parameters["fc1high"])
+    fc4base = float(parameters["fc4base"])
+    fc4high = float(parameters["fc4high"])
+    stepsize = float(parameters["stepsize"])
+    maxtime = float(parameters["maxtime"])
+
+    # Optional starts
+    T1start = float(parameters.get("T1start", 1e5))
+    T2start = float(parameters.get("T2start", 1e5))
+    Lstart  = float(parameters.get("Lstart", 100.0))
+    LGstart = float(parameters.get("LGstart", 100.0))
+
     steps = int(np.ceil(maxtime / stepsize))
-    Tarr = np.zeros(steps)
-    TMarr = np.zeros(steps)
-    T2arr = np.zeros(steps)
-    Aarr = np.zeros(steps)
-    Larr = np.zeros(steps)
-    LGarr = np.zeros(steps)
-    LMarr = np.zeros(steps)
-    imuteffarr = np.zeros(steps)
-    timearr = np.zeros(steps)
-    
-    darr = np.zeros(steps)
+    t_grid = np.arange(steps, dtype=np.float64) * stepsize
 
-    Tstart = 1e5
-    LStart = 100
-    LGStart = 100
+    # ----- arrays -----
+    Tarr = np.zeros(steps, dtype=np.float64)
+    TMarr = np.zeros(steps, dtype=np.float64)
+    T2arr = np.zeros(steps, dtype=np.float64)
+    Aarr = np.zeros(steps, dtype=np.float64)
+    Larr = np.zeros(steps, dtype=np.float64)
+    LGarr = np.zeros(steps, dtype=np.float64)
+    LMarr = np.zeros(steps, dtype=np.float64)
+    imuteffarr = np.zeros(steps, dtype=np.float64)
+    timearr = t_grid.copy()
+    darr = np.zeros(steps, dtype=np.float64)
 
-    mut1 = a1 / ((Tstart / 1e6) ** b1)
-    mut2 = a2 / ((Tstart / 1e6) ** b2)
-
+    # ----- constants / initial conditions -----
     lam = 0.15
     rho = 0.15
     mul = -0.15
-    psi = 7
-    
+    psi = 7.0
 
-    k1 = 1/2 if radType == 'carbon' else min(max(0.04 * dose, 1 / 7), 1 / 2)
+    # k1 conditional on radType
+    k1 = 0.5 if radType.lower() == "carbon" else min(max(0.04 * dose, 1.0 / 7.0), 0.5)
     k2 = 0.2
     k3 = 2.8
-    
-    #aL = 0.2 # alpha of lymphocytes
-    #bL = 0.14 # beta of lymphocytes
-    SL = max(np.exp(-aL * dose - bL * dose ** 2), 0.001) # survival of lymphocytes in TME
-    SLn = max(np.exp(-aL * (fr*dose) - bL * (fr*dose) ** 2), 0.001) # survival of lymphocytes in LN
 
-    Tarr[0] = Tstart
-    T2arr[0] = Tstart
-    TMarr[0] = 0
-    Larr[0] = LStart
-    LGarr[0] = LGStart
-    LMarr[0] = 0
-    Aarr[0] = rho * (1 / (lam + mut1) + 1 / (lam + mut2)) * Tstart
-    
-    darr[0] = 0
+    # Lymphocyte survival in TME/LN
+    SL  = max(np.exp(-aL * dose        - bL * dose**2       ), 0.001)
+    SLn = max(np.exp(-aL * (fr * dose) - bL * (fr * dose)**2), 0.001)
 
-    dfarr = np.array([df(0.5, 0.2, 20, k * stepsize) for k in range(steps)])
-    timearr[0] = 0
+    # initial values
+    Tarr[0]  = T1start if T1start > 0 else 0.
+    T2arr[0] = T2start if T2start > 0 else 0.
+    TMarr[0] = 0.0
+    Larr[0]  = Lstart if Lstart > 0 else 0.
+    LGarr[0] = LGstart if LGstart > 0 else 0.
+    LMarr[0] = 0.0
 
+    mut1 = a1 / ((T1start/1e6) ** b1) if T1start > 0 else 0.
+    mut2 = a2 / ((T2start/1e6) ** b2) if T2start > 0 else 0.
+    Aarr[0] = rho * (1.0/(lam+mut1) + 1.0/(lam+mut2)) * T1start
+    darr[0] = 0.0
+
+    # korr (fall back to 1.0 if not present)
+    if korr_override is not None:
+        _korr = float(korr_override)
+    else:
+        _korr = float(globals().get("korr", 1.0))
+
+    # ----- IT schedules on the grid -----
+    it_intervals = _normalize_it_periods(ITperiods)
+
+    if not it_intervals:
+        # No IT: schedules are constant
+        fc1_sched = np.full(steps, fc1base, dtype=np.float64)
+        fc4_sched = np.full(steps, fc4base, dtype=np.float64)
+    else:
+        intervals_arr = np.array(it_intervals, dtype=np.float64)  # (N, 2)
+        starts = intervals_arr[:, 0][:, None]  # (N, 1)
+        stops  = intervals_arr[:, 1][:, None]  # (N, 1)
+        t2d    = t_grid[None, :]               # (1, steps)
+
+        # Single mask: you can choose (start < t <= stop) or [start, stop].
+        # Here: (start < t <= stop):
+        it_mask_all = (t2d > starts) & (t2d <= stops)
+        it_mask = np.any(it_mask_all, axis=0)
+
+        fc1_sched = np.where(it_mask, fc1high, fc1base)
+        fc4_sched = np.where(it_mask, fc4high, fc4base)
+
+    # ----- fraction indices and counts -----
+    fx = np.asarray(fx, dtype=np.float64)
+    fx.sort()
+    if fx.size:
+        fx_idx = np.floor(fx / stepsize).astype(int)
+        mask = (fx_idx >= 0) & (fx_idx < steps)
+        fx_idx = fx_idx[mask]
+    else:
+        fx_idx = np.array([], dtype=int)
+
+    frac_hits = np.zeros(steps, dtype=np.int32)
+    if fx_idx.size:
+        np.add.at(frac_hits, fx_idx, 1)
+    nfx_until = np.cumsum(frac_hits)  # inclusive
+
+    # ----- df kernels on the grid -----
+    df_fixed = df(0.5, 0.2, 20, t_grid)  # for d(t)
+    df_k     = df(k1,  k2,  k3, t_grid)
+    idf_k    = idf(k1, k2,  k3, t_grid)
+
+    # ----- main loop -----
     for i in range(1, steps):
-        time = stepsize * (i - 1)
-        timeeval = stepsize * (i - 2)
-        fxeval = [t for t in fx if t <= timeeval]
+        timeeval_idx = i - 2
 
-        fc1 = fc1high if startIT < timeeval <= stopIT else fc1base
-        fc4 = fc4high if startIT < timeeval <= stopIT else fc4base
+        # fc1 at this evaluation time (use base if timeeval < 0)
+        fc1 = fc1_sched[timeeval_idx] if timeeval_idx >= 0 else fc1base
 
-        d = stepsize * sum(
-            (
-                (fc4base if stepsize * (i - 1 - k) < startIT or stepsize * (i - 1 - k) > stopIT else fc4high) / korr
-            ) * 
-            (SLn ** len([x for x in fx if x <= stepsize * (i - 1 - k)])) *
-            Aarr[i - 1 - k] *
-            dfarr[k]
-            for k in range(i - 1)
-        )
-        
-        darr[i] = d
+        # ---- d[i] via vectorized dot (convolution-like) ----
+        if i >= 2:
+            past_len = i - 1
+            j_slice = slice(0, i-1)
+            weights = (fc4_sched[j_slice] / _korr) * (SLn ** nfx_until[j_slice]) * Aarr[j_slice]
+            d_sum = np.dot(df_fixed[:past_len], weights[::-1])
+            d_val = stepsize * d_sum
+        else:
+            d_val = 0.0
 
-        muteff = (
-            1e-12 if Tarr[i - 1] == 0 and TMarr[i - 1] == 0 else
-            a1 / ((Tarr[i - 1] + TMarr[i - 1]) / 1e6) ** b1
-        )
+        # Cap d(t)
+        if d_val > d_max:
+            d_val = d_max
+        darr[i] = d_val
 
-        muteff2 = (
-            1e-12 if T2arr[i - 1] == 0 else
-            a2 / (T2arr[i - 1] / 1e6) ** b2
-        )
+        # ---- muteff terms ----
+        total_T = Tarr[i-1] + TMarr[i-1]
+        if total_T <= 0.0:
+            muteff = 1e-12
+        else:
+            muteff = a1 / ((total_T / 1e6) ** b1)
 
-        delT = stepsize * (
-            muteff * Tarr[i - 1] -
-            fc1 * (Larr[i - 1] + LMarr[i - 1])
-        ) - sum(
-            (1 - ST) * Tarr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        )
+        if T2arr[i-1] <= 0.0:
+            muteff2 = 1e-12
+        else:
+            muteff2 = a2 / ((T2arr[i-1] / 1e6) ** b2)
 
-        delTM = sum(
-            (1 - ST) * Tarr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        ) + stepsize * (
-            sum(
-                (1 - ST) * Tarr[int(np.floor(fxeval[k] / stepsize))] *
-                np.exp(imuteffarr[i - 1] - imuteffarr[int(np.floor(fxeval[k] / stepsize))]) *
-                (muteff * idf(k1, k2, k3, timeeval - fxeval[k]) - df(k1, k2, k3, timeeval - fxeval[k]))
-                for k in range(len(fxeval))
-            ) if len(fxeval) > 0 else 0
-        )
+        hits_now = frac_hits[i-1]
 
-        delT2 = stepsize * (muteff2 * T2arr[i - 1] - fc1 * amplification * LGarr[i - 1])
+        # ---- delT ----
+        delT = (stepsize * (muteff * Tarr[i-1] - fc1 * (Larr[i-1] + LMarr[i-1]))
+                - hits_now * (1.0 - ST) * Tarr[i-1])
 
-        delA = stepsize * (
-            -lam * Aarr[i - 1] +
-            rho * (Tarr[i - 1] + T2arr[i - 1]) +
-            psi * (
-                sum(
-                    (1 - ST) * Tarr[int(np.floor(fxeval[k] / stepsize))] *
-                    np.exp(imuteffarr[i - 1] - imuteffarr[int(np.floor(fxeval[k] / stepsize))]) *
-                    df(k1, k2, k3, timeeval - fxeval[k])
-                    for k in range(len(fxeval))
-                ) if len(fxeval) > 0 else 0
-            )
-        )
+        # ---- delTM: sum over past fractions (<= timeeval) ----
+        if fx_idx.size and timeeval_idx >= 0:
+            mask_eval = fx_idx <= timeeval_idx
+            if np.any(mask_eval):
+                idxs   = fx_idx[mask_eval]
+                dt_idx = timeeval_idx - idxs
+                Tarr_at = Tarr[idxs]
+                exp_fac = np.exp(imuteffarr[i-1] - imuteffarr[idxs])
+                dfv  = df_k[dt_idx]
+                idfv = idf_k[dt_idx]
+                tm_sum = np.sum((1.0 - ST) * Tarr_at * exp_fac * (muteff * idfv - dfv))
+                delTM = hits_now * (1.0 - ST) * Tarr[i-1] + stepsize * tm_sum
+            else:
+                delTM = hits_now * (1.0 - ST) * Tarr[i-1]
+        else:
+            delTM = hits_now * (1.0 - ST) * Tarr[i-1]
 
-        delL = stepsize * (
-            mul * Larr[i - 1] + g * 2 * d - fc1 * Larr[i - 1]
-        ) - sum(
-            (1 - SL) * Larr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        )
+        # ---- delT2 ----
+        delT2 = stepsize * (muteff2 * T2arr[i-1] - fc1 * amplification * LGarr[i-1])
 
-        delLM = sum(
-            (1 - SL) * Larr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        ) + stepsize * (
-            sum(
-                (1 - SL) * Larr[int(np.floor(fxeval[k] / stepsize))] *
-                np.exp(mul * (timeeval - fxeval[k])) *
-                (mul * idf(k1, k2, k3, timeeval - fxeval[k]) - df(k1, k2, k3, timeeval - fxeval[k]))
-                for k in range(len(fxeval))
-            ) if len(fxeval) > 0 else 0
-        ) - stepsize * fc1 * LMarr[i - 1]
+        # ---- delA ----
+        if fx_idx.size and timeeval_idx >= 0:
+            mask_eval = fx_idx <= timeeval_idx
+            if np.any(mask_eval):
+                idxs = fx_idx[mask_eval]
+                dt_idx = timeeval_idx - idxs
+                Tarr_at = Tarr[idxs]
+                exp_fac = np.exp(imuteffarr[i-1] - imuteffarr[idxs])
+                dfv = df_k[dt_idx]
+                a_sum = np.sum((1.0 - ST) * Tarr_at * exp_fac * dfv)
+            else:
+                a_sum = 0.0
+        else:
+            a_sum = 0.0
 
-        delLG = stepsize * (mul * LGarr[i - 1] + (1 - g) * 2 * d) - sum(
-            (kRadL) * LGarr[i - 1] if len(fx) > 0 and np.floor(fx[k] / stepsize) == i - 1 else 0
-            for k in range(len(fx))
-        )
+        delA = stepsize * (-lam * Aarr[i-1] + rho * (Tarr[i-1] + T2arr[i-1]) + psi * a_sum)
 
-        timearr[i] = time
-        Tarr[i] = max(0, Tarr[i - 1] + delT)
-        TMarr[i] = max(0, TMarr[i - 1] + delTM)
-        T2arr[i] = max(0, T2arr[i - 1] + delT2)
-        Aarr[i] = max(0, Aarr[i - 1] + delA)
-        Larr[i] = max(0, Larr[i - 1] + delL)
-        LMarr[i] = max(0, LMarr[i - 1] + delLM)
-        LGarr[i] = max(0, LGarr[i - 1] + delLG)
-        imuteffarr[i] = imuteffarr[i - 1] + stepsize * muteff
+        # ---- delL ----
+        delL = (stepsize * (mul * Larr[i-1] + g * 2.0 * d_val - fc1 * Larr[i-1])
+                - hits_now * (1.0 - SL) * Larr[i-1])
 
-    return Tarr, TMarr, T2arr, Aarr, Larr, LMarr, LGarr, imuteffarr, timearr, darr
+        # ---- delLM ----
+        if fx_idx.size and timeeval_idx >= 0:
+            mask_eval = fx_idx <= timeeval_idx
+            if np.any(mask_eval):
+                idxs = fx_idx[mask_eval]
+                dt_idx = timeeval_idx - idxs
+                Larr_at = Larr[idxs]
+                exp_mul = np.exp(mul * (dt_idx.astype(np.float64) * stepsize))
+                dfv  = df_k[dt_idx]
+                idfv = idf_k[dt_idx]
+                lm_sum = np.sum((1.0 - SL) * Larr_at * exp_mul * (mul * idfv - dfv))
+            else:
+                lm_sum = 0.0
+        else:
+            lm_sum = 0.0
+
+        delLM = hits_now * (1.0 - SL) * Larr[i-1] + stepsize * lm_sum - stepsize * fc1 * LMarr[i-1]
+
+        # ---- delLG ----
+        delLG = stepsize * (mul * LGarr[i-1] + (1.0 - g) * 2.0 * d_val) \
+                - hits_now * kRadL * LGarr[i-1]
+
+        # ---- update state (non-negativity clamp) ----
+        Tarr[i]       = max(0.0, Tarr[i-1] + delT)
+        TMarr[i]      = max(0.0, TMarr[i-1] + delTM)
+        T2arr[i]      = max(0.0, T2arr[i-1] + delT2)
+        Aarr[i]       = max(0.0, Aarr[i-1] + delA)
+        Larr[i]       = max(0.0, Larr[i-1] + delL)
+        LMarr[i]      = max(0.0, LMarr[i-1] + delLM)
+        LGarr[i]      = max(0.0, LGarr[i-1] + delLG)
+        imuteffarr[i] = imuteffarr[i-1] + stepsize * muteff
+
+    if return_dict:
+        return {
+            "Tarr": Tarr,
+            "TMarr": TMarr,
+            "T2arr": T2arr,
+            "Aarr": Aarr,
+            "Larr": Larr,
+            "LMarr": LMarr,
+            "LGarr": LGarr,
+            "imuteffarr": imuteffarr,
+            "timearr": timearr,
+            "darr": darr,
+        }
+    else:
+        return Tarr, TMarr, T2arr, Aarr, Larr, LMarr, LGarr, imuteffarr, timearr, darr
 
