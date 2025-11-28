@@ -389,8 +389,9 @@ def rit_simulation(
         delA = stepsize * (-lam * Aarr[i-1] + rho * (Tarr[i-1] + T2arr[i-1]) + psi * a_sum)
 
         # ---- delL ----
-        delL = (stepsize * (mul * Larr[i-1] + g * 2.0 * d_val - fc1 * Larr[i-1])
-                - hits_now * (1.0 - SL) * Larr[i-1])
+        #delL = (stepsize * (mul * Larr[i-1] + g * 2.0 * d_val - fc1 * Larr[i-1]) - hits_now * (1.0 - SL) * Larr[i-1])
+        delL = (stepsize * ((mul - fc1) * (Larr[i-1] - Lstart) + g * 2.0 * d_val ) - hits_now * (1.0 - SL) * Larr[i-1])
+                
 
         # ---- delLM ----
         if fx_idx.size and timeeval_idx >= 0:
@@ -411,8 +412,8 @@ def rit_simulation(
         delLM = hits_now * (1.0 - SL) * Larr[i-1] + stepsize * lm_sum - stepsize * fc1 * LMarr[i-1]
 
         # ---- delLG ----
-        delLG = stepsize * (mul * LGarr[i-1] + (1.0 - g) * 2.0 * d_val) \
-                - hits_now * kRadL * LGarr[i-1]
+        #delLG = stepsize * (mul * LGarr[i-1] + (1.0 - g) * 2.0 * d_val) - hits_now * kRadL * LGarr[i-1]
+        delLG = stepsize * (mul * (LGarr[i-1] - LGstart) + (1.0 - g) * 2.0 * d_val) - hits_now * kRadL * LGarr[i-1]
 
         # ---- update state (non-negativity clamp) ----
         Tarr[i]       = max(0.0, Tarr[i-1] + delT)
