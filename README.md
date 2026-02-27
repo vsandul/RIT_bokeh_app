@@ -1,121 +1,117 @@
 # Radio-Immune Therapy Interactive Dashboard
 
-This repository contains an interactive **Bokeh application** for exploring tumor–immune dynamics in **combined radio-immunotherapy (RIT)**.  
-The tool allows you to modify radiotherapy fractionation, immunotherapy schedules, and biophysical parameters — and instantly visualize model behavior.
+This repository contains an interactive Bokeh app for exploring tumor-immune dynamics in combined radio-immunotherapy (RIT).
 
----
+## Disclaimer
 
-## ⚠️ Disclaimer
+This software is for research and educational use only.
+It is not clinically validated and must not be used for patient treatment decisions.
 
-This software is intended **only for research and educational purposes**.  
-It is **not validated clinically** and must **not** be used to guide patient treatment decisions.
+## Reference Model
 
----
+The implementation is based on:
 
-## 🧩 Scientific Background
+T. Friedrich, M. Scholz, M. Durante
+A Predictive Biophysical Model of the Combined Action of Radiation Therapy and Immunotherapy of Cancer
+International Journal of Radiation Oncology, Biology, Physics (2022)
+DOI: https://doi.org/10.1016/j.ijrobp.2022.03.030
 
-This dashboard is based on the predictive biophysical model of combined radiotherapy and immunotherapy developed by:
+## What the App Does
 
-> **T. Friedrich, M. Scholz, M. Durante**  
-> *A Predictive Biophysical Model of the Combined Action of Radiation Therapy and Immunotherapy of Cancer*  
-> *International Journal of Radiation Oncology, Biology, Physics* (IJROBP), 2022  
-> DOI: https://doi.org/10.1016/j.ijrobp.2022.03.030
+The dashboard runs a forward simulation of primary and abscopal tumor-immune dynamics and updates plots live when you change controls.
 
-## 📊 Features
+Plotted outputs:
 
-### Interactive visualization panels
-Nine dynamic plots:
+- Primary tumor burden (`T + TM`)
+- Moribund primary tumor (`TM`)
+- Abscopal tumor (`T2`)
+- Immune signal (`A`)
+- Lymphocytes in TME (`L + LM`)
+- Moribund lymphocytes in TME (`LM`)
+- Lymphocytes in abscopal site (`LG`)
+- Lymphocyte production rate (`d`)
+- Integrated lymphocyte production (`imuteff`)
 
-- Tumor populations: `Tarr`, `TMarr`, `T2arr`
-- Antigen signal: `Aarr`
-- Lymphocyte populations: `Larr`, `LMarr`, `LGarr`
-- Damage signal: `darr`
-- Immunity effectiveness: `imuteffarr`
+## Main Controls
 
-### Fully interactive treatment design
-- Radiotherapy fractionation scheme (`fx`)
-- Dose to lymphocytes in TME (`d_L`)
-- **Multiple immunotherapy intervals**
-- Lymph node dose fraction (`fr`)
-- Lymphocyte distribution parameter (`g`)
-- Radiation-induced lymphocyte depletion (`kRad`)
-- Optional **LQ model** for tumor survival `ST`
-- Select **Photon** or **Carbon** RT mode
-- Adjustable `a_L`, `b_L` for lymphocyte radiosensitivity
+Plan constants and numerics:
 
-### Adjustable plan constants
-- Tumor growth parameters (`a1`, `b1`, `a2`, `b2`)
-- Antigen amplification
-- fc1/fc4 immune activation parameters (PD-1/CTLA-4 parameters)
-- Numerical ODE settings (`stepsize`, `maxtime`)
-- **Initial values**: `T1start`, `T2start`, `Lstart`, `LGstart`
-- **Antitumor lymphocyte production cap** `d_max` (0 = ∞)
+- Growth/interaction constants: `a1`, `b1`, `a2`, `b2`, `amplification`
+- Immune schedule levels: `fc1base`, `fc1high`, `fc4base`, `fc4high`
+- Time and volume controls: `stepsize`, `mintime`, `maxtime`, `maxvol`, `maxvol2`
 
----
+Initial conditions and immune-signal setup:
 
-## 🚀 Run Online (Binder)
+- `T1start`, `T2start`, `Lstart`, `LGstart`
+- `d_max` cap for `d(t)`
+- `Astart` override with `Auto Astart` toggle:
+  - `Auto Astart` ON (default): `Astart=None`, `A[0]` is computed from model formula
+  - `Auto Astart` OFF: `A[0]` is set to the numeric `Astart` spinner value
 
-Launch directly in your browser—no installation required:
+Immune signal parameters:
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/vsandul/RIT_bokeh_app/main?urlpath=proxy/5006/rit_bokeh_app)
+- `rho`, `lambda`, `psi`, `muL`
 
-> ⚠️ Binder builds may take several minutes on first launch.
+Treatment and radiosensitivity:
 
----
+- Fractionation scheme (`fx`, supports comma-separated values and ranges)
+- Lymphocyte dose in TME (`d_L`)
+- IT periods (`start-stop`, multiple intervals allowed)
+- LN dose fraction (`fr`)
+- TME lymphocyte fraction (`g`)
+- Radiation lymphocyte depletion term (`kRad`)
+- Lymphocyte radiosensitivity (`a_L`, `b_L`)
+- Optional LQ override for tumor survival (`Use LQ model for ST`, `a_T`, `b_T`, dose)
+- RT mode toggle (`Photon` / `Carbon`)
 
-## 💻 Run Locally
+Plot view controls:
 
-### 1. Clone the repository
+- Toggle `Log X scale` and `Log Y scale`
+- Manual axis ranges via `X range (min,max)` and `Y range (min,max)`
+
+## Run Locally
+
+1. Clone repository:
+
 ```bash
 git clone https://github.com/vsandul/RIT_bokeh_app.git
 cd RIT_bokeh_app
 ```
 
-### 2. Install dependencies
+2. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Run the Bokeh server
+3. Start Bokeh app:
+
 ```bash
 bokeh serve --show rit_bokeh_app.py
 ```
 
-Your browser will open automatically at:
+Then open:
 
-**http://localhost:5006/rit_bokeh_app**
+`http://localhost:5006/rit_bokeh_app`
 
----
+## Run on Binder
 
-## 📂 Repository Structure
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/vsandul/RIT_bokeh_app/main?urlpath=proxy/5006/rit_bokeh_app)
 
-```
-.
-├── rit_bokeh_app.py            # Main Bokeh dashboard
-├── simulationFunctions.py      # RIT model (reference version)
-├── requirements.txt            # Dependencies for Binder/local execution
-└── README.md                   # Documentation
-```
+## Repository Layout
 
----
+- `rit_bokeh_app.py`: Bokeh UI and callbacks
+- `simulationFunctions.py`: numerical kernels and `rit_simulation`
+- `requirements.txt`: runtime dependencies
 
-## ⚙️ Requirements
+## Requirements
 
 - Python 3.8+
-- Bokeh ≥ 3.0
-- NumPy, SciPy
+- bokeh
+- numpy
+- scipy
+- matplotlib
 
----
+## License
 
-## 🧑‍🔬 Author & Context
-
-Developed as part of a **PhD research project on radiation-induced lymphopenia and combined radio-immunotherapy modeling** at  
-**GSI Helmholtz Centre for Heavy Ion Research**.
-
-Model based on **Friedrich et al. (2022)** with added mechanisms for abscopal lymphocyte flow (`g`) and radiation-induced depletion (`kRad`).
-
----
-
-## 📜 License
-
-This project is released under the **MIT License**.
+MIT License (see `LICENSE`).
