@@ -207,13 +207,22 @@ def rit_simulation(
     b1 = float(parameters["b1"])
     a2 = float(parameters["a2"])
     b2 = float(parameters["b2"])
-    amplification = float(parameters["amplification"])
+    amplification = float(parameters["amplification"]) #Attenuation of lymphocyte infiltration in secondary tumor compared with primary
     fc1base = float(parameters["fc1base"])
     fc1high = float(parameters["fc1high"])
     fc4base = float(parameters["fc4base"])
     fc4high = float(parameters["fc4high"])
     stepsize = float(parameters["stepsize"])
     maxtime = float(parameters["maxtime"])
+    
+    # Signal parameters (rho, lambda, psi)
+    lam = float(parameters.get("lam", 0.15))
+    rho = float(parameters.get("rho", 0.15))
+    psi = float(parameters.get("psi", 7.0))
+    
+    # Lymphocyte natural decay
+    mul = float(parameters.get("muL", -0.15))
+    
 
     # Optional starts
     T1start = float(parameters.get("T1start", 1e5))
@@ -237,10 +246,7 @@ def rit_simulation(
     darr = np.zeros(steps, dtype=np.float64)
 
     # ----- constants / initial conditions -----
-    lam = 0.15
-    rho = 0.15
-    mul = -0.15
-    psi = 7.0
+
 
     # k1 conditional on radType
     k1 = 0.5 if radType.lower() == "carbon" else min(max(0.04 * dose, 1.0 / 7.0), 0.5)
@@ -261,7 +267,7 @@ def rit_simulation(
 
     mut1 = a1 / ((T1start/1e6) ** b1) if T1start > 0 else 0.
     mut2 = a2 / ((T2start/1e6) ** b2) if T2start > 0 else 0.
-    Aarr[0] = rho * (1.0/(lam+mut1) + 1.0/(lam+mut2)) * T1start
+    Aarr[0] = rho/(lam+mut1)*T1start + rho/(lam+mut2)*T2start
     darr[0] = 0.0
 
     # korr (fall back to 1.0 if not present)
@@ -359,6 +365,7 @@ def rit_simulation(
                 dt_idx = timeeval_idx - idxs
                 Tarr_at = Tarr[idxs]
                 exp_fac = np.exp(imuteffarr[i-1] - imuteffarr[idxs])
+                #exp_fac = np.exp(imuteffarr[timeeval_idx] - imuteffarr[idxs])
                 dfv  = df_k[dt_idx]
                 idfv = idf_k[dt_idx]
                 tm_sum = np.sum((1.0 - ST) * Tarr_at * exp_fac * (muteff * idfv - dfv))
@@ -379,6 +386,7 @@ def rit_simulation(
                 dt_idx = timeeval_idx - idxs
                 Tarr_at = Tarr[idxs]
                 exp_fac = np.exp(imuteffarr[i-1] - imuteffarr[idxs])
+                #exp_fac = np.exp(imuteffarr[timeeval_idx] - imuteffarr[idxs])
                 dfv = df_k[dt_idx]
                 a_sum = np.sum((1.0 - ST) * Tarr_at * exp_fac * dfv)
             else:

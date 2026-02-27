@@ -16,7 +16,7 @@ from bokeh.models import (
 )
 from bokeh.layouts import column, row, gridplot
 from bokeh.plotting import figure
-from bokeh.models import NumeralTickFormatter, PrintfTickFormatter
+from bokeh.models import NumeralTickFormatter, PrintfTickFormatter, DataRange1d, Range1d
 from bokeh.models import Tabs, Panel
 
 
@@ -28,9 +28,9 @@ curdoc().theme = Theme(json={
     "RangeSlider": {"height": 36},
     "TextInput": {"width": 200, "height": 20},
     "Spinner":  {"width": 80, "height": 50},
-    "CheckboxGroup": {"labels": []},  # labels controlled via CSS below if needed
+    "CheckboxGroup": {"labels": []},
     "Axis": {"major_label_text_font_size": "9pt", "axis_label_text_font_size": "10pt"},
-    "Title": {"text_font_size": "11pt"}
+    "Title": {"text_font_size": "9pt"}
   }
 })
 
@@ -44,13 +44,13 @@ aL_default, bL_default = 0.2, 0.14
 
 
 # ========= Controls =========
-# Plan constants 
+# Plan constants
 pc_defaults = dict(
     a1=2.5, b1=0.45, a2=1.2, b2=0.4, amplification=0.5,
     fc1base=0.02, fc1high=0.6, fc4base=0.1254, fc4high=0.1254,
     stepsize=0.1, mintime=0.0, maxtime=60.0, maxvol=1000.0, maxvol2=1000.0,
-    T1start=1e5, T2start=1e5, Lstart=100.0, LGstart=100.0,  # <<< NEW
-    d_max=np.inf                                               # <<< NEW
+    T1start=1e5, T2start=1e5, Lstart=100.0, LGstart=100.0,
+    d_max=np.inf, rho=0.15, lam=0.15, psi=7.0, muL=-0.15
 )
 
 def spin(label, value, step, low=None, high=None, fmt="0.00"):
@@ -62,33 +62,41 @@ sp_a2 = spin("a2", pc_defaults["a2"], 0.01, fmt="0.00")
 sp_b2 = spin("b2", pc_defaults["b2"], 0.01, fmt="0.00")
 sp_amp = spin("amplification", pc_defaults["amplification"], 0.01, 0, 5, fmt="0.00")
 
-sp_fc1b = spin("fc1base", pc_defaults["fc1base"], 0.001, 0, 2, fmt="0.000")
-sp_fc1h = spin("fc1high", pc_defaults["fc1high"], 0.001, 0, 2, fmt="0.000")
-sp_fc4b = spin("fc4base", pc_defaults["fc4base"], 1e-4, 0, 5, fmt="0.0000")
-sp_fc4h = spin("fc4high", pc_defaults["fc4high"], 1e-4, 0, 5, fmt="0.0000")
+sp_fc1b = spin("fc1base", pc_defaults["fc1base"], 0.001, 0, 10, fmt="0.000")
+sp_fc1h = spin("fc1high", pc_defaults["fc1high"], 0.001, 0, 10, fmt="0.000")
+sp_fc4b = spin("fc4base", pc_defaults["fc4base"], 1e-4, 0, 10, fmt="0.0000")
+sp_fc4h = spin("fc4high", pc_defaults["fc4high"], 1e-4, 0, 10, fmt="0.0000")
 
-sp_dt   = spin("stepsize (dt)", pc_defaults["stepsize"], 0.001, 0.001, 3, fmt="0.000")
+sp_dt   = spin("stepsize (dt)", pc_defaults["stepsize"], 0.001, 0.0001, 3, fmt="0.000")
 sp_tmin = spin("mintime", pc_defaults["mintime"], 0.5, 0, 100, fmt="0.0")
-sp_tmax = spin("maxtime", pc_defaults["maxtime"], 0.5, 1, 365, fmt="0.0")
+sp_tmax = spin("maxtime", pc_defaults["maxtime"], 0.5, 1, np.inf, fmt="0.0")
 sp_mv   = spin("maxvol", pc_defaults["maxvol"], 100, 0, 1e6, fmt="0")
 sp_mv2  = spin("maxvol2", pc_defaults["maxvol2"], 100, 0, 1e6, fmt="0")
 
-# <<< NEW: initial conditions and d_max
-sp_T1start = spin("T1start", pc_defaults["T1start"], 1e4, 0, 1e9, fmt="0")
-sp_T2start = spin("T2start", pc_defaults["T2start"], 1e4, 0, 1e9, fmt="0")
-sp_Lstart  = spin("Lstart",  pc_defaults["Lstart"],  1,   0, 1e6, fmt="0")
-sp_LGstart = spin("LGstart", pc_defaults["LGstart"], 1,   0, 1e6, fmt="0")
-sp_dmax    = spin("d_max",   pc_defaults["d_max"],   1e7, -np.inf, np.inf, fmt="0")
+# initial conditions and d_max
+sp_T1start = spin("T1start", pc_defaults["T1start"], 1e8, 0, np.inf, fmt="0.2e")
+sp_T2start = spin("T2start", pc_defaults["T2start"], 1e8, 0, np.inf, fmt="0.2e")
+sp_Lstart  = spin("Lstart",  pc_defaults["Lstart"],  100,   0, 1e6, fmt="0.2e")
+sp_LGstart = spin("LGstart", pc_defaults["LGstart"], 100,   0, 1e6, fmt="0.2e")
+sp_dmax    = spin("d_max",   pc_defaults["d_max"],   1e7, -np.inf, np.inf, fmt="0.2e")
+
+# Signal parameters
+sp_rho = spin("rho",   pc_defaults["rho"],   0.001, -100, 100, fmt="0.000")
+sp_lam = spin("lambda",   pc_defaults["lam"],   0.001, -100, 100, fmt="0.000")
+sp_psi = spin("psi",   pc_defaults["psi"],   0.01, -100, 100, fmt="0.00")
+
+# Lymphocyte natural depletion
+sp_muL = spin("muL",   pc_defaults["muL"],   0.001, -100, 100, fmt="0.000")
 
 # Treatment plan inputs
-fx_input = TextInput(title="Fx scheme; e.g. 1,2,3,..", value="1,2,3,4,5,6,7,8,9")
+fx_input = TextInput(title="Fx scheme", value="1,2,3,4,5,6,7,8,9",placeholder="e.g. 1,2,3,4,5")
 dL_slider = Slider(title="d_L (Gy to L in TME)", start=0, end=20, step=0.1, value=2.0, width=200)
 
-# <<< NEW: IT periods text instead of RangeSlider
 it_input = TextInput(
     title="IT periods (days)",
     value="1-20",
-    width=200
+    width=200,
+    placeholder="e.g. 1-20"
 )
 
 ST_slider = Slider(title="ST (tumor survival / Fx)", start=0.0, end=1.0, step=0.01, value=ST_default, width=200)
@@ -99,15 +107,15 @@ kRad_slider = Slider(title="kRad, fx-1", start=0.0, end=5.0, step=0.01, value=0.
 # Optional LQ override for ST
 use_lq = CheckboxGroup(labels=["Use LQ model for ST"], active=[])
 radType_box = CheckboxGroup(labels=["Carbon RT mode"], active=[])
-dose_for_ST = Slider(title="Dose for LQ ST (Gy)", start=0, end=10, step=0.1, value=2.0,width=200)
+dose_for_ST = Slider(title="Dose for LQ ST (Gy)", start=0, end=10, step=0.1, value=2.0, width=200)
 aT_spin = spin("a_T", 0.1, 0.01, 0, 2, fmt="0.00")
 bT_spin = spin("b_T", 0.05, 0.01, 0, 2, fmt="0.00")
 
-# Lymphocyte radiosensetivity
+# Lymphocyte radiosensitivity
 aL_spin = spin("a_L", aL_default, 0.01, 0, 2, fmt="0.00")
 bL_spin = spin("b_L", bL_default, 0.01, 0, 2, fmt="0.00")
 
-# Update button (also live-on-change; the button is handy after big edits)
+# Update / reset buttons
 btn = Button(label="Update simulation", button_type="primary", width=140)
 reset_btn = Button(label="Reset to defaults", button_type="warning", width=140)
 
@@ -122,44 +130,84 @@ src_LG   = ColumnDataSource(data=dict(x=[], y=[]))
 src_d    = ColumnDataSource(data=dict(x=[], y=[]))
 src_imu  = ColumnDataSource(data=dict(x=[], y=[]))
 
+# ========= Plot-view controls =========
+log_y_box = CheckboxGroup(labels=["Log Y scale"], active=[])
+log_x_box = CheckboxGroup(labels=["Log X scale"], active=[])
+
+xrange_input = TextInput(title="X range (min,max)", value="", width=160,
+                         placeholder="e.g. 0,60")
+yrange_input = TextInput(title="Y range (min,max)", value="", width=160,
+                         placeholder="e.g. 1e2,1e6")
+
+def _parse_range(text):
+    """Return (lo, hi) floats, or None if blank/invalid."""
+    text = text.strip()
+    if not text:
+        return None
+    try:
+        parts = text.replace(";", ",").split(",")
+        lo, hi = float(parts[0]), float(parts[1])
+        if lo >= hi:
+            return None
+        return (lo, hi)
+    except Exception:
+        return None
+
 # ========= Figures (nxm grid) =========
-def fig(title, y_axis_type="linear", y_range=None):
-    p = figure(width=250, height=220, title=title, y_axis_type=y_axis_type)
-    if y_range is not None:
-        p.y_range.start = y_range[0]
-        p.y_range.end   = y_range[1]
+def make_fig(title, source, renderer="line",
+             y_axis_type="linear", x_axis_type="linear",
+             x_range=None, y_range=None):
+    p = figure(width=250, height=220, title=title,
+               y_axis_type=y_axis_type, x_axis_type=x_axis_type)
+    p.x_range = Range1d(*x_range) if x_range else DataRange1d(range_padding=0.05, only_visible=True)
+    p.y_range = Range1d(*y_range) if y_range else DataRange1d(range_padding=0.05, only_visible=True)
     p.xaxis.axis_label = "Time (d)"
     p.yaxis.axis_label = "Value"
     p.yaxis.formatter = PrintfTickFormatter(format="%.1e")
+    if renderer == "step":
+        p.step("x", "y", source=source, line_width=2, mode="center")
+    else:
+        p.line("x", "y", source=source, line_width=2)
     return p
 
-p_Tsum = fig("T + TM", y_range=(0, 5e8))
-p_TM   = fig("TM")
-p_T2   = fig("T2", y_range=(0, 5e8))
-p_A    = fig("A")
-p_L    = fig("L + LM")
-p_LM   = fig("LM")
-p_LG   = fig("LG")
-p_d    = fig("d")
-p_imu  = fig("imuteff")
+# Panel specs: (title, source, renderer)
+_panel_specs = [
+    ("Primary tumor, cells",                  src_Tsum, "line"),
+    ("Moribund tumor, cells",                  src_TM,   "line"),
+    ("Abscopal tumor, cells",                  src_T2,   "line"),
+    ("Immune signal, a.u.",                    src_A,    "line"),
+    ("Lymphocytes in TME, cells",              src_L,    "line"),
+    ("Moribund lymph. in TME, cells",          src_LM,   "line"),
+    ("Lymphocyte in abscopal site, cells",     src_LG,   "line"),
+    ("Lymphocyte production rate, cells/day",  src_d,    "step"),
+    ("Integrated lymphocyte production",       src_imu,  "line"),
+]
 
-p_Tsum.line("x", "y", source=src_Tsum, line_width=2)
-p_TM.line("x", "y", source=src_TM, line_width=2)
-p_T2.line("x", "y", source=src_T2, line_width=2)
-p_A.line("x", "y", source=src_A, line_width=2)
-p_L.line("x", "y", source=src_L, line_width=2)
-p_LM.line("x", "y", source=src_LM, line_width=2)
-p_LG.line("x", "y", source=src_LG, line_width=2)
-p_d.step("x", "y", source=src_d, line_width=2, mode="center")
-p_imu.line("x", "y", source=src_imu, line_width=2)
+# grid_container holds the current gridplot so we can swap it on toggle
+grid_container = column()
 
-grid = gridplot([[p_Tsum, p_TM, p_T2, p_A,],
-                 [p_L, p_LM, p_LG,   p_d,  p_imu]])
+def build_grid(attr, old, new):
+    y_type = "log" if 0 in log_y_box.active else "linear"
+    x_type = "log" if 0 in log_x_box.active else "linear"
+    xr = _parse_range(xrange_input.value)
+    yr = _parse_range(yrange_input.value)
+    figs = [make_fig(title, src, rend,
+                     y_axis_type=y_type, x_axis_type=x_type,
+                     x_range=xr, y_range=yr)
+            for title, src, rend in _panel_specs]
+    new_grid = gridplot([figs[:4], figs[4:]])
+    grid_container.children = [new_grid]
+
+build_grid(None, None, None)
+
+log_y_box.on_change("active", build_grid)
+log_x_box.on_change("active", build_grid)
+xrange_input.on_change("value", build_grid)
+yrange_input.on_change("value", build_grid)
 
 
 # ========= Helpers =========
 def parse_fx(text):
-    # Allow ranges like 1-5 and individual values like 7,9
     out = []
     if not text:
         return [np.inf]
@@ -172,23 +220,13 @@ def parse_fx(text):
             out.extend(list(range(min(a,b), max(a,b)+1)))
         else:
             out.append(float(token))
-    # Keep unique, sorted
     out = sorted(set(out))
     return out
 
-# <<< NEW: parse IT periods as list of (start, stop)
 def parse_ITperiods(text):
-    """
-    Parse IT periods from a string like:
-      "1-20" or "1-20,30-40"
-    Returns:
-      None   if empty/whitespace
-      list of (start, stop) floats otherwise
-    """
     text = text.strip()
     if not text:
         return None
-
     periods = []
     for token in text.replace(" ", "").split(","):
         if not token:
@@ -196,9 +234,7 @@ def parse_ITperiods(text):
         if "-" not in token:
             raise ValueError(f"Invalid IT token '{token}'. Use 'start-stop'.")
         start, stop = token.split("-")
-        start = float(start)
-        stop  = float(stop)
-        periods.append((start, stop))
+        periods.append((float(start), float(stop)))
     return periods
 
 
@@ -214,15 +250,18 @@ def gather_parameters():
         maxtime=float(sp_tmax.value),
         maxvol=float(sp_mv.value),
         maxvol2=float(sp_mv2.value),
-        T1start=float(sp_T1start.value),   # <<< NEW
-        T2start=float(sp_T2start.value),   # <<< NEW
-        Lstart=float(sp_Lstart.value),     # <<< NEW
-        LGstart=float(sp_LGstart.value)    # <<< NEW
+        T1start=float(sp_T1start.value),
+        T2start=float(sp_T2start.value),
+        Lstart=float(sp_Lstart.value),
+        LGstart=float(sp_LGstart.value),
+        rho=float(sp_rho.value),
+        lam=float(sp_lam.value),
+        psi=float(sp_psi.value),
+        muL=float(sp_muL.value)
     )
 
 
 def reset_all():
-    # --- Plan constants ---
     sp_a1.value = pc_defaults["a1"]
     sp_b1.value = pc_defaults["b1"]
     sp_a2.value = pc_defaults["a2"]
@@ -237,33 +276,39 @@ def reset_all():
     sp_tmax.value = pc_defaults["maxtime"]
     sp_mv.value   = pc_defaults["maxvol"]
     sp_mv2.value  = pc_defaults["maxvol2"]
-    sp_T1start.value = pc_defaults["T1start"]   # <<< NEW
-    sp_T2start.value = pc_defaults["T2start"]   # <<< NEW
-    sp_Lstart.value  = pc_defaults["Lstart"]    # <<< NEW
-    sp_LGstart.value = pc_defaults["LGstart"]   # <<< NEW
-    sp_dmax.value    = pc_defaults["d_max"]     # <<< NEW
+    sp_T1start.value = pc_defaults["T1start"]
+    sp_T2start.value = pc_defaults["T2start"]
+    sp_Lstart.value  = pc_defaults["Lstart"]
+    sp_LGstart.value = pc_defaults["LGstart"]
+    sp_dmax.value    = pc_defaults["d_max"]
+    sp_rho.value = pc_defaults["rho"]
+    sp_lam.value = pc_defaults["lam"]
+    sp_psi.value = pc_defaults["psi"]
+    sp_muL.value = pc_defaults["muL"]
 
-    # --- Treatment plan ---
     fx_input.value = "1,2,3,4,5,6,7,8,9"
     dL_slider.value = 2.0
-    it_input.value = "1-20"          # <<< NEW (instead of it_slider)
+    it_input.value = "1-20"
     ST_slider.value = ST_default
     fr_slider.value = 0.2
     g_slider.value  = 0.63
     kRad_slider.value = 0.10
 
-    # --- LQ / radType ---
     use_lq.active = []
-    radType_box.active = []   # or [0] if you want carbon as default
+    radType_box.active = []
     dose_for_ST.value = 2.0
     aT_spin.value = 0.1
     bT_spin.value = 0.05
     aL_spin.value = aL_default
     bL_spin.value = bL_default
 
-    # Refresh plots
-    update()
+    # Reset plot-view controls
+    log_y_box.active = []
+    log_x_box.active = []
+    xrange_input.value = ""
+    yrange_input.value = ""
 
+    update()
 
 
 # ========= Main update =========
@@ -277,24 +322,27 @@ def update(_=None):
 
         params = gather_parameters()
         d_L = float(dL_slider.value)
-        ITperiods = parse_ITperiods(it_input.value)  # <<< NEW
+        ITperiods = parse_ITperiods(it_input.value)
         fr = float(fr_slider.value)
         g  = float(g_slider.value)
         kRad = float(kRad_slider.value)
         aL = float(aL_spin.value)
         bL = float(bL_spin.value)
-        d_max = float(sp_dmax.value) if sp_dmax.value >=0 else np.inf       # <<< NEW
+        d_max = float(sp_dmax.value) if sp_dmax.value >= 0 else np.inf
 
-        # ST from slider or LQ model
+        rho = float(sp_rho.value)
+        lam = float(sp_lam.value)
+        psi = float(sp_psi.value)
+        muL = float(sp_muL.value)
+
         if 0 in use_lq.active:
             ST = float(LQmodel(dose_for_ST.value, float(aT_spin.value), float(bT_spin.value)))
             ST_slider.value = round(float(ST), 4)
         else:
             ST = float(ST_slider.value)
-            
+
         radType = "carbon" if 0 in radType_box.active else "photon"
 
-        # Compute model using rit_simulation instead of rit2_modified_fast  <<< NEW
         Tarr, TMarr, T2arr, Aarr, Larr, LMarr, LGarr, imuteff, timearr, darr = rit_simulation(
             fx=fx,
             dose=d_L,
@@ -310,7 +358,6 @@ def update(_=None):
             d_max=d_max
         )
 
-        # Update sources
         src_Tsum.data = dict(x=timearr, y=np.asarray(Tarr) + np.asarray(TMarr))
         src_TM.data   = dict(x=timearr, y=np.asarray(TMarr))
         src_T2.data   = dict(x=timearr, y=np.asarray(T2arr))
@@ -329,58 +376,61 @@ def update(_=None):
 def _cb(attr, old, new):
     update()
 
-# Widgets that change on "value"
 value_widgets = [
     sp_a1, sp_b1, sp_a2, sp_b2, sp_amp, sp_fc1b, sp_fc1h, sp_fc4b, sp_fc4h,
     sp_dt, sp_tmin, sp_tmax, sp_mv, sp_mv2,
-    sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax,   # <<< NEW
+    sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax,
+    sp_rho, sp_lam, sp_psi, sp_muL,
     fx_input, dL_slider, it_input, ST_slider, fr_slider, g_slider, kRad_slider,
     dose_for_ST, aT_spin, bT_spin, aL_spin, bL_spin
 ]
 for w in value_widgets:
     w.on_change("value", _cb)
 
-# CheckboxGroup changes on "active"
 use_lq.on_change("active", _cb)
 radType_box.on_change("active", _cb)
 
-# Button uses on_click (no args)
 btn.on_click(lambda: update())
-
 reset_btn.on_click(reset_all)
 
-# Initial draw
 update()
 
 # ========= Layout =========
-pc_col1 = column(  # Section: Plan constants 
+pc_col1 = column(
     Div(text="<b>Plan constants</b> (you can type numbers)"),
     row(
         sp_a1, sp_b1, sp_a2, sp_b2, sp_amp,
         sp_fc1b, sp_fc1h, sp_fc4b, sp_fc4h,
         sp_dt, sp_tmin, sp_tmax, sp_mv, sp_mv2
     ),
-    row(  # <<< NEW: start values + d_max in same block
-        sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax
+    row(
+        sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax,
+        sp_rho, sp_lam, sp_psi, sp_muL
     ),
     sizing_mode="stretch_width"
 )
 
-plan_section = column(  # Section: Treatment plan
+plan_section = column(
     Div(text="<b>Treatment plan</b>"),
     row(dL_slider, fx_input, g_slider, aL_spin, bL_spin, ST_slider, column(radType_box, use_lq)),
     row(
         fr_slider,
-        it_input,        # <<< NEW (instead of it_slider)
+        it_input,
         kRad_slider,
         aT_spin, bT_spin,
-        dose_for_ST, 
-        column(btn, reset_btn)              
+        dose_for_ST,
+        column(btn, reset_btn)
     ),
     sizing_mode="stretch_width"
 )
 
+plot_controls = row(
+    Div(text="<b>Plot view:</b>"),
+    column(log_x_box, log_y_box),
+    xrange_input,
+    yrange_input,
+)
 
-curdoc().add_root(column(pc_col1, plan_section, grid, status))
+curdoc().add_root(column(pc_col1, plan_section, plot_controls, grid_container, status))
 
 curdoc().title = "RIT Interactive (Bokeh)"
