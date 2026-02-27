@@ -187,7 +187,7 @@ def rit_simulation(
     """
     General RIT simulator (primary + abscopal tumor) with:
       - Multiple immunotherapy (IT) windows via ITperiods.
-      - Optional custom initial values T1start, T2start, Lstart, LGstart from `parameters`.
+      - Optional custom initial values T1start, T2start, Lstart, LGstart, Astart from `parameters`.
       - Cap on d(t) via d_max.
       - kRadL term for lymphocyte damage in abscopal compartment.
 
@@ -229,6 +229,7 @@ def rit_simulation(
     T2start = float(parameters.get("T2start", 1e5))
     Lstart  = float(parameters.get("Lstart", 100.0))
     LGstart = float(parameters.get("LGstart", 100.0))
+    Astart = None if parameters.get("Astart") is None else float(parameters.get("Astart"))
 
     steps = int(np.ceil(maxtime / stepsize))
     t_grid = np.arange(steps, dtype=np.float64) * stepsize
@@ -267,7 +268,10 @@ def rit_simulation(
 
     mut1 = a1 / ((T1start/1e6) ** b1) if T1start > 0 else 0.
     mut2 = a2 / ((T2start/1e6) ** b2) if T2start > 0 else 0.
-    Aarr[0] = rho/(lam+mut1)*T1start + rho/(lam+mut2)*T2start
+    if Astart is None:
+        Aarr[0] = rho/(lam+mut1)*T1start + rho/(lam+mut2)*T2start
+    else:
+        Aarr[0] = Astart
     darr[0] = 0.0
 
     # korr (fall back to 1.0 if not present)
@@ -448,4 +452,3 @@ def rit_simulation(
         }
     else:
         return Tarr, TMarr, T2arr, Aarr, Larr, LMarr, LGarr, imuteffarr, timearr, darr
-

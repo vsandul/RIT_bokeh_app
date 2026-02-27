@@ -50,7 +50,7 @@ pc_defaults = dict(
     fc1base=0.02, fc1high=0.6, fc4base=0.1254, fc4high=0.1254,
     stepsize=0.1, mintime=0.0, maxtime=60.0, maxvol=1000.0, maxvol2=1000.0,
     T1start=1e5, T2start=1e5, Lstart=100.0, LGstart=100.0,
-    d_max=np.inf, rho=0.15, lam=0.15, psi=7.0, muL=-0.15
+    d_max=np.inf, Astart=0.0, rho=0.15, lam=0.15, psi=7.0, muL=-0.15
 )
 
 def spin(label, value, step, low=None, high=None, fmt="0.00"):
@@ -73,12 +73,14 @@ sp_tmax = spin("maxtime", pc_defaults["maxtime"], 0.5, 1, np.inf, fmt="0.0")
 sp_mv   = spin("maxvol", pc_defaults["maxvol"], 100, 0, 1e6, fmt="0")
 sp_mv2  = spin("maxvol2", pc_defaults["maxvol2"], 100, 0, 1e6, fmt="0")
 
-# initial conditions and d_max
+# initial conditions and d_max / Astart
 sp_T1start = spin("T1start", pc_defaults["T1start"], 1e8, 0, np.inf, fmt="0.2e")
 sp_T2start = spin("T2start", pc_defaults["T2start"], 1e8, 0, np.inf, fmt="0.2e")
 sp_Lstart  = spin("Lstart",  pc_defaults["Lstart"],  100,   0, 1e6, fmt="0.2e")
 sp_LGstart = spin("LGstart", pc_defaults["LGstart"], 100,   0, 1e6, fmt="0.2e")
 sp_dmax    = spin("d_max",   pc_defaults["d_max"],   1e7, -np.inf, np.inf, fmt="0.2e")
+sp_Astart  = spin("Astart",  pc_defaults["Astart"],  100, -np.inf, np.inf, fmt="0.2e")
+auto_Astart_box = CheckboxGroup(labels=["Auto Astart"], active=[0])
 
 # Signal parameters
 sp_rho = spin("rho",   pc_defaults["rho"],   0.001, -100, 100, fmt="0.000")
@@ -239,6 +241,7 @@ def parse_ITperiods(text):
 
 
 def gather_parameters():
+    Astart = None if 0 in auto_Astart_box.active else float(sp_Astart.value)
     return dict(
         a1=float(sp_a1.value), b1=float(sp_b1.value),
         a2=float(sp_a2.value), b2=float(sp_b2.value),
@@ -254,11 +257,15 @@ def gather_parameters():
         T2start=float(sp_T2start.value),
         Lstart=float(sp_Lstart.value),
         LGstart=float(sp_LGstart.value),
+        Astart=Astart,
         rho=float(sp_rho.value),
         lam=float(sp_lam.value),
         psi=float(sp_psi.value),
         muL=float(sp_muL.value)
     )
+
+def sync_astart_mode():
+    sp_Astart.disabled = 0 in auto_Astart_box.active
 
 
 def reset_all():
@@ -281,6 +288,9 @@ def reset_all():
     sp_Lstart.value  = pc_defaults["Lstart"]
     sp_LGstart.value = pc_defaults["LGstart"]
     sp_dmax.value    = pc_defaults["d_max"]
+    sp_Astart.value  = pc_defaults["Astart"]
+    auto_Astart_box.active = [0]
+    sync_astart_mode()
     sp_rho.value = pc_defaults["rho"]
     sp_lam.value = pc_defaults["lam"]
     sp_psi.value = pc_defaults["psi"]
@@ -376,10 +386,14 @@ def update(_=None):
 def _cb(attr, old, new):
     update()
 
+def _cb_astart_mode(attr, old, new):
+    sync_astart_mode()
+    update()
+
 value_widgets = [
     sp_a1, sp_b1, sp_a2, sp_b2, sp_amp, sp_fc1b, sp_fc1h, sp_fc4b, sp_fc4h,
     sp_dt, sp_tmin, sp_tmax, sp_mv, sp_mv2,
-    sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax,
+    sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax, sp_Astart,
     sp_rho, sp_lam, sp_psi, sp_muL,
     fx_input, dL_slider, it_input, ST_slider, fr_slider, g_slider, kRad_slider,
     dose_for_ST, aT_spin, bT_spin, aL_spin, bL_spin
@@ -389,10 +403,12 @@ for w in value_widgets:
 
 use_lq.on_change("active", _cb)
 radType_box.on_change("active", _cb)
+auto_Astart_box.on_change("active", _cb_astart_mode)
 
 btn.on_click(lambda: update())
 reset_btn.on_click(reset_all)
 
+sync_astart_mode()
 update()
 
 # ========= Layout =========
@@ -404,7 +420,7 @@ pc_col1 = column(
         sp_dt, sp_tmin, sp_tmax, sp_mv, sp_mv2
     ),
     row(
-        sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax,
+        sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax, sp_Astart, auto_Astart_box,
         sp_rho, sp_lam, sp_psi, sp_muL
     ),
     sizing_mode="stretch_width"
