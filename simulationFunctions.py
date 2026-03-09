@@ -269,7 +269,8 @@ def rit_simulation(
     mut1 = a1 / ((T1start/1e6) ** b1) if T1start > 0 else 0.
     mut2 = a2 / ((T2start/1e6) ** b2) if T2start > 0 else 0.
     if Astart is None:
-        Aarr[0] = rho/(lam+mut1)*T1start + rho/(lam+mut2)*T2start
+        #Aarr[0] = rho/(lam+mut1)*T1start + rho/(lam+mut2)*T2start
+        Aarr[0] = rho*(T1start + T2start)**2/((lam+mut1)*T1start + (lam+mut2)*T2start)
     else:
         Aarr[0] = Astart
     darr[0] = 0.0

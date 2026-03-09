@@ -12,7 +12,7 @@ print(f"korr = {korr}")
 from bokeh.io import curdoc
 from bokeh.models import (
     ColumnDataSource, Slider, RangeSlider, TextInput, Spinner, Button,
-    CheckboxGroup, Div
+    CheckboxGroup, Div, MultiChoice, Legend, LegendItem
 )
 from bokeh.layouts import column, row, gridplot
 from bokeh.plotting import figure
@@ -132,6 +132,38 @@ src_LG   = ColumnDataSource(data=dict(x=[], y=[]))
 src_d    = ColumnDataSource(data=dict(x=[], y=[]))
 src_imu  = ColumnDataSource(data=dict(x=[], y=[]))
 
+# Combined overlay plot controls/state (imuteff intentionally excluded)
+combined_series_labels = [
+    "Primary",
+    "Moribund",
+    "Abscopal",
+    "Signal",
+    "L in TME",
+    "LM in TME",
+    "L abscopal",
+    "L prod",
+]
+combined_selector = MultiChoice(
+    title="Selected plots",
+    value=combined_series_labels.copy(),
+    options=combined_series_labels,
+    width=240
+)
+
+combined_series_config = {
+    "Primary": ("Primary", src_Tsum, "#1f77b4"),
+    "Moribund": ("Moribund", src_TM, "#ff7f0e"),
+    "Abscopal": ("Abscopal", src_T2, "#2ca02c"),
+    "Signal": ("Signal", src_A, "#d62728"),
+    "L in TME": ("L in TME", src_L, "#9467bd"),
+    "LM in TME": ("LM in TME", src_LM, "#8c564b"),
+    "L abscopal": ("L abscopal", src_LG, "#e377c2"),
+    "L prod": ("L prod", src_d, "#17becf"),
+}
+combined_renderers = {}
+combined_legend = None
+combined_legend_renderers = {}
+
 # ========= Plot-view controls =========
 log_y_box = CheckboxGroup(labels=["Log Y scale"], active=[])
 log_x_box = CheckboxGroup(labels=["Log X scale"], active=[])
@@ -168,7 +200,7 @@ def make_fig(title, source, renderer="line",
     p.yaxis.formatter = PrintfTickFormatter(format="%.1e")
     if renderer == "step":
         p.step("x", "y", source=source, line_width=2, mode="center")
-    else:
+    elif renderer == "line":
         p.line("x", "y", source=source, line_width=2)
     return p
 
@@ -181,14 +213,31 @@ _panel_specs = [
     ("Lymphocytes in TME, cells",              src_L,    "line"),
     ("Moribund lymph. in TME, cells",          src_LM,   "line"),
     ("Lymphocyte in abscopal site, cells",     src_LG,   "line"),
-    ("Lymphocyte production rate, cells/day",  src_d,    "step"),
-    ("Integrated lymphocyte production",       src_imu,  "line"),
+    ("Lymphocyte production rate, cells/day",  src_d,    "line"),
+    ("Integrated tumor growth",                src_imu,  "line"),
 ]
 
 # grid_container holds the current gridplot so we can swap it on toggle
 grid_container = column()
 
+def apply_combined_visibility():
+    selected = set(combined_selector.value)
+    for label, renderer in combined_renderers.items():
+        renderer.visible = label in selected
+    for label, renderer in combined_legend_renderers.items():
+        renderer.visible = label in selected
+
 def build_grid(attr, old, new):
+    global combined_renderers, combined_legend, combined_legend_renderers
+
+    # Preserve current selected/on state across full grid rebuilds.
+    prev_selected = list(combined_selector.value)
+    if combined_renderers:
+        prev_selected = [
+            label for label in combined_series_labels
+            if label in combined_renderers and combined_renderers[label].visible
+        ]
+
     y_type = "log" if 0 in log_y_box.active else "linear"
     x_type = "log" if 0 in log_x_box.active else "linear"
     xr = _parse_range(xrange_input.value)
@@ -197,7 +246,72 @@ def build_grid(attr, old, new):
                      y_axis_type=y_type, x_axis_type=x_type,
                      x_range=xr, y_range=yr)
             for title, src, rend in _panel_specs]
-    new_grid = gridplot([figs[:4], figs[4:]])
+
+    p_combined = make_fig(
+        "Selected plots",
+        src_Tsum,
+        "none",
+        y_axis_type=y_type,
+        x_axis_type=x_type,
+        x_range=xr,
+        y_range=yr
+    )
+    combined_renderers = {}
+    combined_legend_renderers = {}
+    for selector_label, (legend_label, source, color) in combined_series_config.items():
+        combined_renderers[selector_label] = p_combined.line(
+            "x",
+            "y",
+            source=source,
+            line_width=2,
+            color=color
+        )
+
+    # Keep plot size identical to all other panels; host legend in a separate side panel.
+    legend_host = figure(
+        width=140,
+        height=220,
+        toolbar_location=None,
+        outline_line_color=None,
+        min_border=0
+    )
+    legend_host.x_range = Range1d(0, 1)
+    legend_host.y_range = Range1d(0, 1)
+    legend_host.xaxis.visible = False
+    legend_host.yaxis.visible = False
+    legend_host.xgrid.visible = False
+    legend_host.ygrid.visible = False
+    for selector_label, (_, _, color) in combined_series_config.items():
+        proxy = legend_host.line(
+            [-2, -1], [-2, -1],
+            line_width=2,
+            color=color
+        )
+        proxy.js_link("visible", combined_renderers[selector_label], "visible")
+        combined_legend_renderers[selector_label] = proxy
+    combined_legend = Legend(
+        items=[
+            LegendItem(label=combined_series_config[label][0], renderers=[combined_legend_renderers[label]])
+            for label in combined_series_labels
+        ],
+        click_policy="hide",
+        label_text_font_size="11pt",
+        spacing=2,
+        padding=2,
+        margin=2,
+        glyph_width=15,
+        glyph_height=13,
+        label_height=14,
+        label_standoff=2,
+        ncols=1,
+    )
+    combined_legend.location = "top_left"
+    legend_host.add_layout(combined_legend)
+    combined_selector.value = prev_selected
+    apply_combined_visibility()
+
+    combined_cell = row(p_combined, legend_host, spacing=0)
+    new_grid = gridplot([figs[:4] + [combined_cell], figs[4:]])
     grid_container.children = [new_grid]
 
 build_grid(None, None, None)
@@ -206,6 +320,7 @@ log_y_box.on_change("active", build_grid)
 log_x_box.on_change("active", build_grid)
 xrange_input.on_change("value", build_grid)
 yrange_input.on_change("value", build_grid)
+combined_selector.on_change("value", lambda attr, old, new: apply_combined_visibility())
 
 
 # ========= Helpers =========
@@ -317,6 +432,7 @@ def reset_all():
     log_x_box.active = []
     xrange_input.value = ""
     yrange_input.value = ""
+    combined_selector.value = combined_series_labels.copy()
 
     update()
 
@@ -445,6 +561,7 @@ plot_controls = row(
     column(log_x_box, log_y_box),
     xrange_input,
     yrange_input,
+    # combined_selector,  # hidden: legend is interactive and used as the plot toggle UI
 )
 
 curdoc().add_root(column(pc_col1, plan_section, plot_controls, grid_container, status))
