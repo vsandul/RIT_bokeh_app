@@ -56,10 +56,10 @@ pc_defaults = dict(
 def spin(label, value, step, low=None, high=None, fmt="0.00"):
     return Spinner(title=label, value=value, step=step, low=low, high=high, width=80, format=fmt)
 
-sp_a1 = spin("a1", pc_defaults["a1"], 0.01, fmt="0.00")
-sp_b1 = spin("b1", pc_defaults["b1"], 0.01, fmt="0.00")
-sp_a2 = spin("a2", pc_defaults["a2"], 0.01, fmt="0.00")
-sp_b2 = spin("b2", pc_defaults["b2"], 0.01, fmt="0.00")
+sp_a1 = spin("a1", pc_defaults["a1"], 0.001, fmt="0.00")
+sp_b1 = spin("b1", pc_defaults["b1"], 0.001, fmt="0.00")
+sp_a2 = spin("a2", pc_defaults["a2"], 0.001, fmt="0.00")
+sp_b2 = spin("b2", pc_defaults["b2"], 0.001, fmt="0.00")
 sp_amp = spin("amplification", pc_defaults["amplification"], 0.01, 0, 5, fmt="0.00")
 
 sp_fc1b = spin("fc1base", pc_defaults["fc1base"], 0.001, 0, 10, fmt="0.000")
