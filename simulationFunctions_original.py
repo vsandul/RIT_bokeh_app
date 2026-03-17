@@ -316,26 +316,11 @@ def rit_simulation(
     if fx_idx.size:
         np.add.at(frac_hits, fx_idx, 1)
     nfx_until = np.cumsum(frac_hits)  # inclusive
-    survival_scale = (fc4_sched / _korr) * np.power(SLn, nfx_until)
 
     # ----- df kernels on the grid -----
     df_fixed = df(0.5, 0.2, 20, t_grid)  # for d(t)
     df_k     = df(k1,  k2,  k3, t_grid)
     idf_k    = idf(k1, k2,  k3, t_grid)
-    d_nonzero_idx = np.flatnonzero(df_fixed)
-    d_support_len = int(d_nonzero_idx[-1] + 1) if d_nonzero_idx.size else 0
-    df_fixed_rev = df_fixed[:d_support_len][::-1].copy()
-    hist_nonzero_idx = np.flatnonzero((df_k != 0.0) | (idf_k != 0.0))
-    hist_support_len = int(hist_nonzero_idx[-1] + 1) if hist_nonzero_idx.size else 0
-    weighted_A = np.zeros(steps, dtype=np.float64)
-    weighted_A[0] = survival_scale[0] * Aarr[0]
-    exp_mul_grid = np.exp(mul * t_grid)
-    exp_neg_imuteff = np.empty(steps, dtype=np.float64)
-    exp_neg_imuteff[0] = 1.0
-    one_minus_ST = 1.0 - ST
-    one_minus_SL = 1.0 - SL
-    fx_left = 0
-    fx_right = 0
 
     # ----- main loop -----
     for i in range(1, steps):
@@ -347,9 +332,9 @@ def rit_simulation(
         # ---- d[i] via vectorized dot (convolution-like) ----
         if i >= 2:
             past_len = i - 1
-            tail_len = min(past_len, d_support_len)
-            start = past_len - tail_len
-            d_sum = np.dot(weighted_A[start:past_len], df_fixed_rev[d_support_len - tail_len:])
+            j_slice = slice(0, i-1)
+            weights = (fc4_sched[j_slice] / _korr) * (SLn ** nfx_until[j_slice]) * Aarr[j_slice]
+            d_sum = np.dot(df_fixed[:past_len], weights[::-1])
             d_val = stepsize * d_sum
         else:
             d_val = 0.0
@@ -372,44 +357,45 @@ def rit_simulation(
             muteff2 = a2 / ((T2arr[i-1] / 1e6) ** b2)
 
         hits_now = frac_hits[i-1]
-        active_count = 0
-        if fx_idx.size and timeeval_idx >= 0:
-            while fx_right < fx_idx.size and fx_idx[fx_right] <= timeeval_idx:
-                fx_right += 1
-            if hist_support_len > 0:
-                while fx_left < fx_right and (timeeval_idx - fx_idx[fx_left]) >= hist_support_len:
-                    fx_left += 1
-            else:
-                fx_left = fx_right
-            active_count = fx_right - fx_left
-
-        if active_count > 0:
-            active_idxs = fx_idx[fx_left:fx_right]
-            dt_idx = timeeval_idx - active_idxs
-            dfv = df_k[dt_idx]
-            idfv = idf_k[dt_idx]
-            exp_fac = np.exp(imuteffarr[i-1]) * exp_neg_imuteff[active_idxs]
-            Tarr_active = Tarr[active_idxs]
-            Larr_active = Larr[active_idxs]
-            exp_mul = exp_mul_grid[dt_idx]
 
         # ---- delT ----
         delT = (stepsize * (muteff * Tarr[i-1] - fc1 * (Larr[i-1] + LMarr[i-1]))
-                - hits_now * one_minus_ST * Tarr[i-1])
+                - hits_now * (1.0 - ST) * Tarr[i-1])
 
         # ---- delTM: sum over past fractions (<= timeeval) ----
-        if active_count > 0:
-            tm_sum = np.sum(one_minus_ST * Tarr_active * exp_fac * (muteff * idfv - dfv))
-            delTM = hits_now * one_minus_ST * Tarr[i-1] + stepsize * tm_sum
+        if fx_idx.size and timeeval_idx >= 0:
+            mask_eval = fx_idx <= timeeval_idx
+            if np.any(mask_eval):
+                idxs   = fx_idx[mask_eval]
+                dt_idx = timeeval_idx - idxs
+                Tarr_at = Tarr[idxs]
+                exp_fac = np.exp(imuteffarr[i-1] - imuteffarr[idxs])
+                #exp_fac = np.exp(imuteffarr[timeeval_idx] - imuteffarr[idxs])
+                dfv  = df_k[dt_idx]
+                idfv = idf_k[dt_idx]
+                tm_sum = np.sum((1.0 - ST) * Tarr_at * exp_fac * (muteff * idfv - dfv))
+                delTM = hits_now * (1.0 - ST) * Tarr[i-1] + stepsize * tm_sum
+            else:
+                delTM = hits_now * (1.0 - ST) * Tarr[i-1]
         else:
-            delTM = hits_now * one_minus_ST * Tarr[i-1]
+            delTM = hits_now * (1.0 - ST) * Tarr[i-1]
 
         # ---- delT2 ----
         delT2 = stepsize * (muteff2 * T2arr[i-1] - fc1 * amplification * LGarr[i-1])
 
         # ---- delA ----
-        if active_count > 0:
-            a_sum = np.sum(one_minus_ST * Tarr_active * exp_fac * dfv)
+        if fx_idx.size and timeeval_idx >= 0:
+            mask_eval = fx_idx <= timeeval_idx
+            if np.any(mask_eval):
+                idxs = fx_idx[mask_eval]
+                dt_idx = timeeval_idx - idxs
+                Tarr_at = Tarr[idxs]
+                exp_fac = np.exp(imuteffarr[i-1] - imuteffarr[idxs])
+                #exp_fac = np.exp(imuteffarr[timeeval_idx] - imuteffarr[idxs])
+                dfv = df_k[dt_idx]
+                a_sum = np.sum((1.0 - ST) * Tarr_at * exp_fac * dfv)
+            else:
+                a_sum = 0.0
         else:
             a_sum = 0.0
 
@@ -421,12 +407,22 @@ def rit_simulation(
                 
 
         # ---- delLM ----
-        if active_count > 0:
-            lm_sum = np.sum(one_minus_SL * Larr_active * exp_mul * (mul * idfv - dfv))
+        if fx_idx.size and timeeval_idx >= 0:
+            mask_eval = fx_idx <= timeeval_idx
+            if np.any(mask_eval):
+                idxs = fx_idx[mask_eval]
+                dt_idx = timeeval_idx - idxs
+                Larr_at = Larr[idxs]
+                exp_mul = np.exp(mul * (dt_idx.astype(np.float64) * stepsize))
+                dfv  = df_k[dt_idx]
+                idfv = idf_k[dt_idx]
+                lm_sum = np.sum((1.0 - SL) * Larr_at * exp_mul * (mul * idfv - dfv))
+            else:
+                lm_sum = 0.0
         else:
             lm_sum = 0.0
 
-        delLM = hits_now * one_minus_SL * Larr[i-1] + stepsize * lm_sum - stepsize * fc1 * LMarr[i-1]
+        delLM = hits_now * (1.0 - SL) * Larr[i-1] + stepsize * lm_sum - stepsize * fc1 * LMarr[i-1]
 
         # ---- delLG ----
         delLG = stepsize * (mul * LGarr[i-1] + (1.0 - g) * d_val) - hits_now * kRadL * LGarr[i-1]
@@ -441,8 +437,6 @@ def rit_simulation(
         LMarr[i]      = max(0.0, LMarr[i-1] + delLM)
         LGarr[i]      = max(0.0, LGarr[i-1] + delLG)
         imuteffarr[i] = imuteffarr[i-1] + stepsize * muteff
-        weighted_A[i] = survival_scale[i] * Aarr[i]
-        exp_neg_imuteff[i] = np.exp(-imuteffarr[i])
 
     if return_dict:
         return {

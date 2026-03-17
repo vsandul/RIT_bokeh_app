@@ -50,7 +50,7 @@ pc_defaults = dict(
     fc1base=0.02, fc1high=0.6, fc4base=0.1254, fc4high=0.1254,
     stepsize=0.1, mintime=0.0, maxtime=60.0, maxvol=1000.0, maxvol2=1000.0,
     T1start=1e5, T2start=1e5, Lstart=100.0, LGstart=100.0,
-    d_max=np.inf, Astart=0.0, rho=0.15, lam=0.15, psi=7.0, muL=-0.15
+    d_max=np.inf, Astart=0.0, rho=0.30, lam=0.30, psi=14.0, muL=-0.15
 )
 
 def spin(label, value, step, low=None, high=None, fmt="0.00"):
