@@ -179,6 +179,7 @@ def rit_simulation(
     *,
     return_dict: bool = False,
     korr_override: Optional[float] = None,
+    use_L2_exhaustion: bool = False,
 ) -> Union[
     Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,
           np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
@@ -190,6 +191,7 @@ def rit_simulation(
       - Optional custom initial values T1start, T2start, Lstart, LGstart, Astart from `parameters`.
       - Cap on d(t) via d_max.
       - kRadL term for lymphocyte damage in abscopal compartment.
+      - Optional abscopal lymphocyte exhaustion at rate fc1 * amplification * LG.
 
     ITperiods:
       * None or []                        -> no IT
@@ -429,7 +431,11 @@ def rit_simulation(
         delLM = hits_now * one_minus_SL * Larr[i-1] + stepsize * lm_sum - stepsize * fc1 * LMarr[i-1]
 
         # ---- delLG ----
-        delLG = stepsize * (mul * LGarr[i-1] + (1.0 - g) * d_val) - hits_now * kRadL * LGarr[i-1]
+        delLG = (
+            stepsize * (mul * LGarr[i-1] + (1.0 - g) * d_val
+                        - (fc1 * amplification * LGarr[i-1] if use_L2_exhaustion else 0.0))
+            - hits_now * kRadL * LGarr[i-1]
+        )
         #delLG = stepsize * (mul * (LGarr[i-1] - LGstart) + (1.0 - g) * d_val) - hits_now * kRadL * LGarr[i-1]
 
         # ---- update state (non-negativity clamp) ----

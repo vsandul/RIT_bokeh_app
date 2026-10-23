@@ -109,6 +109,7 @@ kRad_slider = Slider(title="kRad, fx-1", start=0.0, end=5.0, step=0.01, value=0.
 # Optional LQ override for ST
 use_lq = CheckboxGroup(labels=["Use LQ model for ST"], active=[])
 radType_box = CheckboxGroup(labels=["Carbon RT mode"], active=[])
+L2_exhaustion_box = CheckboxGroup(labels=["L2 exhaustion (-fc1 × a × L2)"], active=[])
 dose_for_ST = Slider(title="Dose for LQ ST (Gy)", start=0, end=10, step=0.1, value=2.0, width=200)
 aT_spin = spin("a_T", 0.1, 0.01, 0, 2, fmt="0.00")
 bT_spin = spin("b_T", 0.05, 0.01, 0, 2, fmt="0.00")
@@ -421,6 +422,7 @@ def reset_all():
 
     use_lq.active = []
     radType_box.active = []
+    L2_exhaustion_box.active = []
     dose_for_ST.value = 2.0
     aT_spin.value = 0.1
     bT_spin.value = 0.05
@@ -481,7 +483,8 @@ def update(_=None):
             radType=radType,
             aL=aL,
             bL=bL,
-            d_max=d_max
+            d_max=d_max,
+            use_L2_exhaustion=0 in L2_exhaustion_box.active
         )
 
         src_Tsum.data = dict(x=timearr, y=np.asarray(Tarr) + np.asarray(TMarr))
@@ -519,6 +522,7 @@ for w in value_widgets:
 
 use_lq.on_change("active", _cb)
 radType_box.on_change("active", _cb)
+L2_exhaustion_box.on_change("active", _cb)
 auto_Astart_box.on_change("active", _cb_astart_mode)
 
 btn.on_click(lambda: update())
@@ -544,7 +548,8 @@ pc_col1 = column(
 
 plan_section = column(
     Div(text="<b>Treatment plan</b>"),
-    row(dL_slider, fx_input, g_slider, aL_spin, bL_spin, ST_slider, column(radType_box, use_lq)),
+    row(dL_slider, fx_input, g_slider, aL_spin, bL_spin, ST_slider,
+        column(radType_box, use_lq, L2_exhaustion_box)),
     row(
         fr_slider,
         it_input,

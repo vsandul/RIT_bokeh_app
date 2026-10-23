@@ -60,6 +60,7 @@ Treatment and radiosensitivity:
 - LN dose fraction (`fr`)
 - TME lymphocyte fraction (`g`)
 - Radiation lymphocyte depletion term (`kRad`)
+- Optional `L2 exhaustion` toggle (off by default): adds `-fc1 * amplification * LG` to the abscopal lymphocyte rate
 - Lymphocyte radiosensitivity (`a_L`, `b_L`)
 - Optional LQ override for tumor survival (`Use LQ model for ST`, `a_T`, `b_T`, dose)
 - RT mode toggle (`Photon` / `Carbon`)
