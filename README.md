@@ -1,120 +1,67 @@
-# Radio-Immune Therapy Interactive Dashboard
+# RIT Simulator
 
-This repository contains an interactive Bokeh app for exploring tumor-immune dynamics in combined radio-immunotherapy (RIT).
+An interactive Bokeh dashboard for exploring a biophysical model of combined radiotherapy and immunotherapy (RIT). Change the treatment schedule or model parameters to simulate the response of a primary tumor and an abscopal tumor.
 
-## Disclaimer
+**For research and education only.** The simulator is not clinically validated and must not be used to make treatment decisions.
 
-This software is for research and educational use only.
-It is not clinically validated and must not be used for patient treatment decisions.
+## Run locally
 
-## Reference Model
-
-The implementation is based on:
-
-T. Friedrich, M. Scholz, M. Durante
-A Predictive Biophysical Model of the Combined Action of Radiation Therapy and Immunotherapy of Cancer
-International Journal of Radiation Oncology, Biology, Physics (2022)
-DOI: https://doi.org/10.1016/j.ijrobp.2022.03.030
-
-## What the App Does
-
-The dashboard runs a forward simulation of primary and abscopal tumor-immune dynamics and updates plots live when you change controls.
-
-Plotted outputs:
-
-- Primary tumor burden (`T + TM`)
-- Moribund primary tumor (`TM`)
-- Abscopal tumor (`T2`)
-- Immune signal (`A`)
-- Lymphocytes in TME (`L + LM`)
-- Moribund lymphocytes in TME (`LM`)
-- Lymphocytes in abscopal site (`LG`)
-- Lymphocyte production rate (`d`)
-- Integrated primary tumor growth coefficient (`imuteff`, the time integral of μ₁)
-
-## Main Controls
-
-Plan constants and numerics:
-
-- Growth/interaction constants: `a1`, `b1`, `a2`, `b2`, `amplification`
-- Immune schedule levels: `fc1base`, `fc1high`, `fc4base`, `fc4high`
-- Time controls: `stepsize`, `mintime`, `maxtime`
-
-Initial conditions and immune-signal setup:
-
-- `T1start`, `T2start`, `Lstart`, `LGstart`
-- `d_max` cap for `d(t)`
-- `Astart` override with `Auto Astart` toggle:
-  - `Auto Astart` ON (default): `Astart=None`, `A[0]` is computed from model formula
-  - `Auto Astart` OFF: `A[0]` is set to the numeric `Astart` spinner value
-
-Immune signal parameters:
-
-- `rho`, `lambda`, `psi`, `muL`
-
-Treatment and radiosensitivity:
-
-- Fractionation scheme (`fx`, supports comma-separated values and ranges)
-- Lymphocyte dose in TME (`d_L`)
-- IT periods (`start-stop`, multiple intervals allowed)
-- LN dose fraction (`fr`)
-- TME lymphocyte fraction (`g`)
-- Radiation lymphocyte depletion term (`kRad`)
-- Optional `L2 exhaustion` toggle (off by default): adds `-fc1 * amplification * LG` to the abscopal lymphocyte rate
-- Lymphocyte radiosensitivity (`a_L`, `b_L`)
-- Optional LQ override for tumor survival (`Use LQ model for ST`, `a_T`, `b_T`, dose)
-- RT mode selector (`Photon` / `Carbon`)
-
-Plot view controls:
-
-- `Individual plots` shows a 3×3 grid with a linked time axis and crosshair. `Selected plots` combines the main series with a clickable legend.
-- Toggle `Log X scale` and `Log Y scale`
-- Enter manual axis ranges as `min,max` in `X range` or `Y range`.
-
-## Run Locally
-
-1. Clone repository:
+Use Python 3.10 or later. The commands below use a virtual environment on macOS or Linux.
 
 ```bash
 git clone https://github.com/vsandul/RIT_bokeh_app.git
 cd RIT_bokeh_app
+python3 -m venv venv
+source venv/bin/activate
+python -m pip install -r requirements.txt
+python -m bokeh serve --show rit_bokeh_app.py
 ```
 
-2. Install dependencies:
+If your browser does not open automatically, go to [localhost:5006/rit_bokeh_app](http://localhost:5006/rit_bokeh_app). Stop the server with **Ctrl+C**. Using `python -m bokeh` runs Bokeh from the same environment as the installed dependencies. The requirements file pins Bokeh 3.5.1.
 
-```bash
-pip install -r requirements.txt
-```
+## Use the dashboard
 
-3. Start Bokeh app:
+The left panel groups simulation inputs by purpose. Hover over **ⓘ** beside a field for its meaning and accepted values. Changes recalculate the simulation as you enter them. Press **Enter** to apply a text field, use **Update simulation** to rerun explicitly, or choose **Reset to defaults** to restore the original inputs and plot settings.
 
-```bash
-bokeh serve --show rit_bokeh_app.py
-```
+### Set up a simulation
 
-Then open:
+| Section | What to enter |
+| --- | --- |
+| Treatment plan | Enter radiation days as a comma-separated list with optional inclusive integer ranges, such as `1,3,5-9`. Enter immunotherapy windows as `start-stop` pairs separated by commas, such as `1-20,25-30`. Immunotherapy applies for `start < t ≤ stop`. Leave either schedule blank to omit that treatment. Choose Photon or Carbon, the lymphocyte dose per fraction, and the tumor survival fraction. |
+| Radiosensitivity & depletion | Adjust lymphocyte survival coefficients, the dose fraction reaching draining lymph nodes, the share of recruited lymphocytes allocated to the primary tumor microenvironment (TME), and abscopal lymphocyte depletion. The optional **L₂ exhaustion** switch adds a separate abscopal loss term. |
+| Tumor survival (LQ) | Turn on **Use LQ for Sₜ** to calculate tumor survival from the linear-quadratic coefficients and the adjacent dose field. With the switch off, the treatment plan supplies the survival fraction directly. |
+| Initial conditions | Set starting cell counts for both sites. **Auto Aₛₜₐᵣₜ** computes the initial immune signal by default. Turn it off to set the initial signal manually. The optional production cap applies to `d(t)`. |
+| Tumor growth & checkpoints | Set the growth coefficients for both tumors and the baseline and on-treatment levels for tumor killing and lymphocyte replenishment. |
+| Immune signal | Adjust signal production, decay, and amplification, along with baseline lymphocyte growth or loss. |
+| Simulation time | Set the time step and simulation horizon. The kernel currently starts at day 0 regardless of the displayed minimum-time field. |
 
-`http://localhost:5006/rit_bokeh_app`
+### Read the plots
 
-## Run on Binder
+**Individual plots** shows nine outputs in a 3×3 grid with a linked time axis and crosshair.
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/vsandul/RIT_bokeh_app/main?urlpath=proxy/5006/rit_bokeh_app)
+| Row | Left | Center | Right |
+| --- | --- | --- | --- |
+| Tumor cells | Primary tumor, T₁ + Tₘ | Moribund tumor, Tₘ | Abscopal tumor, T₂ |
+| Lymphocyte counts | TME lymphocytes, L₁ + Lₘ | Moribund TME lymphocytes, Lₘ | Abscopal lymphocytes, L₂ |
+| Signal and rates | Immune signal, A | Lymphocyte production rate, d(t) | Integrated primary growth rate, the dimensionless time integral of μ₁ |
 
-## Repository Layout
+**Selected plots** overlays eight series with a clickable legend. The integrated growth coefficient is available in **Individual plots**.
 
-- `rit_bokeh_app.py`: Bokeh widgets, plots, and callbacks
-- `rit_dashboard.html`: dashboard layout and parameter help
-- `simulationFunctions.py`: numerical kernels and `rit_simulation`
-- `requirements.txt`: runtime dependencies
+Use **Log X** and **Log Y** to change the scale. Enter a manual axis range as `min,max`, such as `1,60` or `1e2,1e8`, then press **Enter**. Clear a field to restore automatic scaling. Logarithmic ranges require two positive bounds.
 
-## Requirements
+## Reference model
 
-- Python 3.10+
-- bokeh
-- numpy
-- scipy
-- matplotlib
+Friedrich, T., Scholz, M., and Durante, M. (2022). [A Predictive Biophysical Model of the Combined Action of Radiation Therapy and Immunotherapy of Cancer](https://doi.org/10.1016/j.ijrobp.2022.03.030). *International Journal of Radiation Oncology, Biology, Physics*, 113(4), 872–884.
+
+The last plot reports the accumulated integral of the primary tumor growth coefficient μ₁ from the start of the simulation. Differences in that integral give the exponent used for post-fraction growth in equations (2) and (4) of the paper. Equation (8) defines the separate lymphocyte production rate d(t).
+
+## Repository layout
+
+- [`rit_bokeh_app.py`](rit_bokeh_app.py) configures Bokeh widgets, plots, and callbacks.
+- [`rit_dashboard.html`](rit_dashboard.html) defines the dashboard layout and parameter help.
+- [`simulationFunctions.py`](simulationFunctions.py) contains the numerical model and the `rit_simulation` function.
+- [`requirements.txt`](requirements.txt) lists the Python dependencies.
 
 ## License
 
-MIT License (see `LICENSE`).
+[MIT](LICENSE).

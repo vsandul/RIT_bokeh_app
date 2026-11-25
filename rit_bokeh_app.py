@@ -192,10 +192,15 @@ plot_specs = [
 ]
 sources = {key: ColumnDataSource(data={"x": [], "y": []}) for key, *_ in plot_specs}
 combined_renderers = {}
-individual_tab = TabPanel(title="Individual plots", child=column())
-combined_tab = TabPanel(title="Selected plots", child=column())
+# Bokeh 3.4 listens for changes to a layout's children, but not to TabPanel.child.
+individual_plots = column(sizing_mode="stretch_both")
+combined_plot = column(sizing_mode="stretch_both")
 results = Tabs(
-    tabs=[individual_tab, combined_tab], sizing_mode="stretch_both", name="results",
+    tabs=[
+        TabPanel(title="Individual plots", child=individual_plots),
+        TabPanel(title="Selected plots", child=combined_plot),
+    ],
+    sizing_mode="stretch_both", name="results",
     stylesheets=[TABS_STYLE],
 )
 log_x = CheckboxGroup(labels=["Log X"], width=53, margin=0)
@@ -227,9 +232,11 @@ def parse_range(text, logarithmic):
 
 
 def axis_range(bounds):
+    # Pan, zoom, and auto-ranging happen in the browser. The server only needs
+    # the range fields, so stale range updates cannot race with plot replacement.
     if bounds is not None:
-        return Range1d(*bounds)
-    return DataRange1d(range_padding=0.04, only_visible=True)
+        return Range1d(*bounds, syncable=False)
+    return DataRange1d(range_padding=0.04, only_visible=True, syncable=False)
 
 
 def make_plot(title, y_label, x_range, y_bounds, *, combined=False):
@@ -238,6 +245,7 @@ def make_plot(title, y_label, x_range, y_bounds, *, combined=False):
         x_axis_type="log" if log_x.active else "linear",
         y_axis_type="log" if log_y.active else "linear",
         x_range=x_range, y_range=axis_range(y_bounds),
+        syncable=False,  # Canvas dimensions are only used in the browser.
         sizing_mode="stretch_both", min_border=7, min_border_left=60,
         background_fill_color="#ffffff", border_fill_color="#ffffff",
         outline_line_color=None, toolbar_location="above",
@@ -245,6 +253,8 @@ def make_plot(title, y_label, x_range, y_bounds, *, combined=False):
         styles={"border": "1px solid #dae6e2", "border-radius": "12px"},
     )
     plot.toolbar.logo = None
+    for tool in plot.tools:
+        tool.syncable = False
     plot.title.text_font = "system-ui"
     plot.title.text_font_style = "bold"
     plot.title.text_font_size = "13px"
@@ -282,6 +292,7 @@ def make_hover(renderers="auto", *, combined=False):
     return HoverTool(
         renderers=renderers, mode="vline", tooltips=tooltips,
         formatters={"@x": number, "@y": number},
+        syncable=False,
     )
 
 
@@ -300,7 +311,7 @@ def build_plots():
         _, title, y_label, _, _ = spec
         plot = make_plot(title, y_label, shared_x, y_bounds)
         add_line(plot, spec)
-        plot.add_tools(hover, CrosshairTool(overlay=cursor))
+        plot.add_tools(hover, CrosshairTool(overlay=cursor, syncable=False))
         individual.append(plot)
 
     grid = gridplot(
@@ -309,7 +320,9 @@ def build_plots():
     )
     grid.spacing = 8
     grid.rows = grid.cols = "1fr"
-    individual_tab.child = grid
+    for tool in grid.toolbar.tools:
+        tool.syncable = False
+    individual_plots.children = [grid]
 
     overlay = make_plot("Selected plots", "Model value", axis_range(x_bounds), y_bounds, combined=True)
     combined_renderers.clear()
@@ -328,7 +341,7 @@ def build_plots():
     overlay.center.remove(legend)
     overlay.add_layout(legend, "right")
     overlay.add_tools(make_hover(list(combined_renderers.values()), combined=True))
-    combined_tab.child = overlay
+    combined_plot.children = [overlay]
 
 
 def parse_fx(text):
