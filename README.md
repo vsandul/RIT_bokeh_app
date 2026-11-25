@@ -4,6 +4,8 @@ An interactive Bokeh dashboard for exploring a biophysical model of combined rad
 
 **For research and education only.** The simulator is not clinically validated and must not be used to make treatment decisions.
 
+**[Try the live demo](https://rit-bokeh-app.onrender.com/rit_bokeh_app)** to change the treatment schedule and explore the resulting curves. The demo runs on Render’s free plan and may take about a minute to wake up after inactivity. Simulation speed depends on the computer or server running the app.
+
 ## Run locally
 
 Use Python 3.10 or later. The commands below use a virtual environment on macOS or Linux.
