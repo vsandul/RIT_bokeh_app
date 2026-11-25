@@ -192,8 +192,15 @@ plot_specs = [
     ("integrated", "Integrated primary growth rate", "∫ μ₁ dt (dimensionless)", "", "solid"),
 ]
 plot_title_notes = {
-    "primary": "Total primary tumor cells, including moribund tumor cells (T₁ + Tₘ).",
-    "tme": "Total lymphocytes in the tumor microenvironment, including moribund TME lymphocytes (L₁ + Lₘ).",
+    "primary": "Includes moribund tumor cells (T₁ + Tₘ).",
+    "moribund": "Lethally irradiated primary tumor cells awaiting clearance.",
+    "abscopal": "Tumor cells at the unirradiated site.",
+    "tme": "Includes moribund lymphocytes (L₁ + Lₘ).",
+    "moribund_tme": "Lethally irradiated lymphocytes in the primary tumor.",
+    "abscopal_lymphocytes": "Lymphocytes at the unirradiated tumor site.",
+    "signal": "Tumor-derived signal driving lymphocyte production.",
+    "production": "New lymphocytes produced per day.",
+    "integrated": "Primary tumor growth coefficient (μ₁) integrated over time.",
 }
 sources = {key: ColumnDataSource(data={"x": [], "y": []}) for key, *_ in plot_specs}
 combined_renderers = {}
@@ -317,33 +324,31 @@ def build_plots():
         plot = make_plot(title, y_label, shared_x, y_bounds)
         add_line(plot, spec)
         plot.add_tools(hover, CrosshairTool(overlay=cursor, syncable=False))
-        if key in plot_title_notes:
-            note = plot_title_notes[key]
-            header = Div(
-                text=(
-                    f'<strong>{escape(title)}</strong> '
-                    f'<span tabindex="0" aria-label="{escape(note)}">ⓘ'
-                    f'<span class="note" role="tooltip">{escape(note)}</span></span>'
-                ),
-                margin=0, height=24, sizing_mode="stretch_width",
-                stylesheets=["""
-                    :host { z-index: 1; overflow: visible; }
-                    .bk-clearfix { padding: 4px 0 0 60px; font: 13px system-ui; color: #18302b; }
-                    [tabindex] { position: relative; color: #087d69; cursor: help; }
-                    .note { display: none; position: absolute; top: 100%; left: 0;
-                            width: 150px; transform: translateX(-65%); padding: 7px 9px;
-                            border-radius: 6px; background: #18302b; color: white;
-                            font: 12px/1.4 system-ui; }
-                    [tabindex]:hover .note, [tabindex]:focus .note { display: block; }
-                """],
-            )
-            plot.title.visible = False
-            card_styles = plot.styles
-            plot.styles = {}
-            individual.append(column(header, plot, spacing=0, sizing_mode="stretch_both",
-                                     styles={**card_styles, "background": "white"}))
-        else:
-            individual.append(plot)
+        note = plot_title_notes[key]
+        header = Div(
+            text=(
+                f'<strong>{escape(title)}</strong> '
+                f'<span tabindex="0" aria-label="{escape(note)}">ⓘ'
+                f'<span class="note" role="tooltip">{escape(note)}</span></span>'
+            ),
+            margin=0, height=24, sizing_mode="stretch_width",
+            stylesheets=["""
+                :host { z-index: 1; overflow: visible; }
+                .bk-clearfix { padding: 4px 0 0 60px; font: 13px system-ui; color: #18302b; }
+                [tabindex] { position: relative; color: #087d69; cursor: help; }
+                .note { display: none; position: absolute; top: 100%; left: 0;
+                        width: 150px; transform: translateX(-65%); padding: 7px 9px;
+                        border-radius: 6px; background: #18302b; color: white;
+                        font: 12px/1.4 system-ui; }
+                [tabindex]:hover .note, [tabindex]:focus .note { display: block; }
+            """],
+        )
+        plot.title.visible = False
+        card_styles = plot.styles
+        plot.styles = {}
+        individual.append(column(header, plot, spacing=0, sizing_mode="stretch_both",
+                                 styles={**card_styles, "background": "white"}))
+
 
     grid = gridplot(
         individual, ncols=3, sizing_mode="stretch_both", toolbar_location="above",
