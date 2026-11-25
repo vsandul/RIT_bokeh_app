@@ -1,3 +1,4 @@
+from base64 import b64encode
 from html import escape
 from pathlib import Path
 
@@ -483,6 +484,8 @@ update()
 build_plots()
 for layout in (actions, status, plot_controls, results):
     document.add_root(layout)
+logo_path = TEMPLATE.parent / "assets" / "rit-simulator.png"
+document.template_variables["logo_png"] = b64encode(logo_path.read_bytes()).decode("ascii")
 document.template = TEMPLATE.read_text(encoding="utf-8")
 document.template_variables["parameter_sections"] = template_sections
 document.title = "RIT Simulator"

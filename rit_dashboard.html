@@ -37,8 +37,9 @@
     border-bottom: 1px solid var(--edge);
     background: linear-gradient(110deg, var(--tint), var(--paper) 70%);
   }
-  .rit-header h1 { font-size: clamp(23px, 2vw, 30px); letter-spacing: -.04em; line-height: 1.1; }
-  .rit-header p { margin-top: 4px; font-size: 12px; color: var(--muted); }
+  .rit-brand { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+  .rit-brand img { display: block; height: clamp(44px, 4vw, 52px); width: auto; }
+  .rit-header p { font-size: 12px; color: var(--muted); }
   .rit-layout {
     display: grid;
     grid-template-columns: clamp(260px, 21vw, 332px) minmax(0, 1fr);
@@ -145,8 +146,8 @@
 {% block contents %}
 <div class="rit-page">
   <header class="rit-header">
-    <div>
-      <h1>RIT Simulator</h1>
+    <div class="rit-brand">
+      <h1><img src="data:image/png;base64,{{ logo_png }}" alt="RIT Simulator"></h1>
       <p>Radio-immunotherapy · Tumor–immune dynamics</p>
     </div>
     <div class="rit-plot-options" role="group" aria-label="Plot view">
