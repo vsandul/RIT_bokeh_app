@@ -1,574 +1,475 @@
-#!/usr/bin/env python
-# coding: utf-8
+from html import escape
+from pathlib import Path
 
 import numpy as np
-import matplotlib.pyplot as plt
-import time
-
-from simulationFunctions import *
-print(f"korr = {korr}")
-
-
 from bokeh.io import curdoc
+from bokeh.layouts import column, gridplot, row
 from bokeh.models import (
-    ColumnDataSource, Slider, RangeSlider, TextInput, Spinner, Button,
-    CheckboxGroup, Div, MultiChoice, Legend, LegendItem
+    Button, CheckboxGroup, ColumnDataSource, CrosshairTool, CustomJSHover,
+    CustomJSTickFormatter, DataRange1d, Div, HoverTool, Range1d, Select,
+    Slider, Span, Spinner, Switch, TabPanel, Tabs, TextInput,
 )
-from bokeh.layouts import column, row, gridplot
 from bokeh.plotting import figure
-from bokeh.models import NumeralTickFormatter, PrintfTickFormatter, DataRange1d, Range1d
-from bokeh.models import Tabs, Panel
+
+from simulationFunctions import rit_simulation
 
 
-from bokeh.themes import Theme
-curdoc().theme = Theme(json={
-  "attrs": {
-    "Button":   {"height": 28},
-    "Slider":   {"height": 36},
-    "RangeSlider": {"height": 36},
-    "TextInput": {"width": 200, "height": 20},
-    "Spinner":  {"width": 80, "height": 50},
-    "CheckboxGroup": {"labels": []},
-    "Axis": {"major_label_text_font_size": "9pt", "axis_label_text_font_size": "10pt"},
-    "Title": {"text_font_size": "9pt"}
-  }
-})
-
-
-def LQmodel(d, a, b):
-    return np.exp(-(a*d + b*d*d))
-
-
-ST_default = 0.5
-aL_default, bL_default = 0.2, 0.14
-
-
-# ========= Controls =========
-# Plan constants
-pc_defaults = dict(
-    a1=2.5, b1=0.45, a2=1.2, b2=0.4, amplification=0.5,
-    fc1base=0.02, fc1high=0.6, fc4base=0.1254, fc4high=0.1254,
-    stepsize=0.1, mintime=0.0, maxtime=60.0, maxvol=1000.0, maxvol2=1000.0,
-    T1start=1e5, T2start=1e5, Lstart=100.0, LGstart=100.0,
-    d_max=np.inf, Astart=0.0, rho=0.30, lam=0.30, psi=14.0, muL=-0.15
-)
-
-def spin(label, value, step, low=None, high=None, fmt="0.00"):
-    return Spinner(title=label, value=value, step=step, low=low, high=high, width=80, format=fmt)
-
-sp_a1 = spin("a1", pc_defaults["a1"], 0.001, fmt="0.000")
-sp_b1 = spin("b1", pc_defaults["b1"], 0.001, fmt="0.000")
-sp_a2 = spin("a2", pc_defaults["a2"], 0.001, fmt="0.000")
-sp_b2 = spin("b2", pc_defaults["b2"], 0.001, fmt="0.000")
-sp_amp = spin("amplification", pc_defaults["amplification"], 0.01, 0, 5, fmt="0.00")
-
-sp_fc1b = spin("fc1base", pc_defaults["fc1base"], 0.001, 0, 10, fmt="0.000")
-sp_fc1h = spin("fc1high", pc_defaults["fc1high"], 0.001, 0, 10, fmt="0.000")
-sp_fc4b = spin("fc4base", pc_defaults["fc4base"], 1e-4, 0, 10, fmt="0.0000")
-sp_fc4h = spin("fc4high", pc_defaults["fc4high"], 1e-4, 0, 10, fmt="0.0000")
-
-sp_dt   = spin("stepsize (dt)", pc_defaults["stepsize"], 0.001, 0.0001, 3, fmt="0.000")
-sp_tmin = spin("mintime", pc_defaults["mintime"], 0.5, 0, 100, fmt="0.0")
-sp_tmax = spin("maxtime", pc_defaults["maxtime"], 0.5, 1, np.inf, fmt="0.0")
-sp_mv   = spin("maxvol", pc_defaults["maxvol"], 100, 0, 1e6, fmt="0")
-sp_mv2  = spin("maxvol2", pc_defaults["maxvol2"], 100, 0, 1e6, fmt="0")
-
-# initial conditions and d_max / Astart
-sp_T1start = spin("T1start", pc_defaults["T1start"], 1e8, 0, np.inf, fmt="0.2e")
-sp_T2start = spin("T2start", pc_defaults["T2start"], 1e8, 0, np.inf, fmt="0.2e")
-sp_Lstart  = spin("Lstart",  pc_defaults["Lstart"],  100,   0, 1e6, fmt="0.2e")
-sp_LGstart = spin("LGstart", pc_defaults["LGstart"], 100,   0, 1e6, fmt="0.2e")
-sp_dmax    = spin("d_max",   pc_defaults["d_max"],   1e7, -np.inf, np.inf, fmt="0.2e")
-sp_Astart  = spin("Astart",  pc_defaults["Astart"],  100, -np.inf, np.inf, fmt="0.2e")
-auto_Astart_box = CheckboxGroup(labels=["Auto Astart"], active=[0])
-
-# Signal parameters
-sp_rho = spin("rho",   pc_defaults["rho"],   0.001, -100, 100, fmt="0.000")
-sp_lam = spin("lambda",   pc_defaults["lam"],   0.001, -100, 100, fmt="0.000")
-sp_psi = spin("psi",   pc_defaults["psi"],   0.01, -100, 100, fmt="0.00")
-
-# Lymphocyte natural depletion
-sp_muL = spin("muL",   pc_defaults["muL"],   0.001, -100, 100, fmt="0.000")
-
-# Treatment plan inputs
-fx_input = TextInput(title="Fx scheme", value="1,2,3,4,5,6,7,8,9",placeholder="e.g. 1,2,3,4,5")
-dL_slider = Slider(title="d_L (Gy to L in TME)", start=0, end=20, step=0.1, value=2.0, width=200)
-
-it_input = TextInput(
-    title="IT periods (days)",
-    value="1-20",
-    width=200,
-    placeholder="e.g. 1-20"
-)
-
-ST_slider = Slider(title="ST (tumor survival / Fx)", start=0.0, end=1.0, step=0.01, value=ST_default, width=200)
-fr_slider = Slider(title="fr (LN dose fraction)", start=0.0, end=1.0, step=0.01, value=0.2, width=200)
-g_slider  = Slider(title="g (fraction of L in TME)", start=0.0, end=1.0, step=0.01, value=0.63, width=200)
-kRad_slider = Slider(title="kRad, fx-1", start=0.0, end=5.0, step=0.01, value=0.10, width=200)
-
-# Optional LQ override for ST
-use_lq = CheckboxGroup(labels=["Use LQ model for ST"], active=[])
-radType_box = CheckboxGroup(labels=["Carbon RT mode"], active=[])
-L2_exhaustion_box = CheckboxGroup(labels=["L2 exhaustion (-fc1 × a × L2)"], active=[])
-dose_for_ST = Slider(title="Dose for LQ ST (Gy)", start=0, end=10, step=0.1, value=2.0, width=200)
-aT_spin = spin("a_T", 0.1, 0.01, 0, 2, fmt="0.00")
-bT_spin = spin("b_T", 0.05, 0.01, 0, 2, fmt="0.00")
-
-# Lymphocyte radiosensitivity
-aL_spin = spin("a_L", aL_default, 0.01, 0, 2, fmt="0.00")
-bL_spin = spin("b_L", bL_default, 0.01, 0, 2, fmt="0.00")
-
-# Update / reset buttons
-btn = Button(label="Update simulation", button_type="primary", width=140)
-reset_btn = Button(label="Reset to defaults", button_type="warning", width=140)
-
-# ========= Data sources for 9 panels =========
-src_Tsum = ColumnDataSource(data=dict(x=[], y=[]))
-src_TM   = ColumnDataSource(data=dict(x=[], y=[]))
-src_T2   = ColumnDataSource(data=dict(x=[], y=[]))
-src_A    = ColumnDataSource(data=dict(x=[], y=[]))
-src_L    = ColumnDataSource(data=dict(x=[], y=[]))
-src_LM   = ColumnDataSource(data=dict(x=[], y=[]))
-src_LG   = ColumnDataSource(data=dict(x=[], y=[]))
-src_d    = ColumnDataSource(data=dict(x=[], y=[]))
-src_imu  = ColumnDataSource(data=dict(x=[], y=[]))
-
-# Combined overlay plot controls/state (imuteff intentionally excluded)
-combined_series_labels = [
-    "Primary",
-    "Moribund",
-    "Abscopal",
-    "Signal",
-    "L in TME",
-    "LM in TME",
-    "L abscopal",
-    "L prod",
-]
-combined_selector = MultiChoice(
-    title="Selected plots",
-    value=combined_series_labels.copy(),
-    options=combined_series_labels,
-    width=240
-)
-
-combined_series_config = {
-    "Primary": ("Primary", src_Tsum, "#1f77b4"),
-    "Moribund": ("Moribund", src_TM, "#ff7f0e"),
-    "Abscopal": ("Abscopal", src_T2, "#2ca02c"),
-    "Signal": ("Signal", src_A, "#d62728"),
-    "L in TME": ("L in TME", src_L, "#9467bd"),
-    "LM in TME": ("LM in TME", src_LM, "#8c564b"),
-    "L abscopal": ("L abscopal", src_LG, "#e377c2"),
-    "L prod": ("L prod", src_d, "#17becf"),
+TEMPLATE = Path(__file__).with_name("rit_dashboard.html")
+COLORS = {
+    "primary": "#087d69",
+    "moribund": "#ac5a30",
+    "abscopal": "#3e64ae",
+    "tme": "#7550b0",
+    "moribund_tme": "#7f5536",
+    "abscopal_lymphocytes": "#536921",
+    "signal": "#9c4766",
+    "production": "#257085",
+    "integrated": "#53646f",
 }
-combined_renderers = {}
-combined_legend = None
-combined_legend_renderers = {}
+WIDGET_STYLE = """
+:host { font-family: system-ui, sans-serif; color: #18302b; }
+.bk-input {
+    background: #f6f9f8;
+    border-color: #d6e4df;
+    border-radius: 6px;
+    color: #18302b;
+    font: 12px system-ui, sans-serif;
+    min-height: 28px;
+}
+.bk-input:focus { border-color: #087d69; }
+.bk-input:disabled { color: #60746e; }
+.noUi-connect { background: #087d69; }
+"""
+SWITCH_STYLE = """
+:host(.active) .bar { background-color: #8bcbb9; }
+:host(.active) .knob { background-color: #087d69; }
+"""
+TABS_STYLE = """
+.bk-tabs-header { margin-bottom: 6px; border-color: #dae6e2; }
+.bk-tab { color: #536a63; font: 600 13px system-ui, sans-serif; }
+.bk-tab.bk-active { color: #095f50; background: #e9f4ef; border-radius: 7px 7px 0 0; }
+"""
 
-# ========= Plot-view controls =========
-log_y_box = CheckboxGroup(labels=["Log Y scale"], active=[])
-log_x_box = CheckboxGroup(labels=["Log X scale"], active=[])
 
-xrange_input = TextInput(title="X range (min,max)", value="", width=160,
-                         placeholder="e.g. 0,60")
-yrange_input = TextInput(title="Y range (min,max)", value="", width=160,
-                         placeholder="e.g. 1e2,1e6")
+def spin(value, step, low=None, high=None, fmt="0.00"):
+    return Spinner(value=value, step=step, low=low, high=high, format=fmt)
 
-def _parse_range(text):
-    """Return (lo, hi) floats, or None if blank/invalid."""
-    text = text.strip()
-    if not text:
-        return None
-    try:
-        parts = text.replace(";", ",").split(",")
-        lo, hi = float(parts[0]), float(parts[1])
-        if lo >= hi:
-            return None
-        return (lo, hi)
-    except Exception:
-        return None
 
-# ========= Figures (nxm grid) =========
-def make_fig(title, source, renderer="line",
-             y_axis_type="linear", x_axis_type="linear",
-             x_range=None, y_range=None):
-    p = figure(width=250, height=220, title=title,
-               y_axis_type=y_axis_type, x_axis_type=x_axis_type)
-    p.x_range = Range1d(*x_range) if x_range else DataRange1d(range_padding=0.05, only_visible=True)
-    p.y_range = Range1d(*y_range) if y_range else DataRange1d(range_padding=0.05, only_visible=True)
-    p.xaxis.axis_label = "Time (d)"
-    p.yaxis.axis_label = "Value"
-    p.yaxis.formatter = PrintfTickFormatter(format="%.1e")
-    if renderer == "step":
-        p.step("x", "y", source=source, line_width=2, mode="center")
-    elif renderer == "line":
-        p.line("x", "y", source=source, line_width=2)
-    return p
+def slider(value, end, step, fmt="0.00"):
+    return Slider(
+        value=value, start=0, end=end, step=step, format=fmt,
+        title="", show_value=True, bar_color="#a5d6c8",
+    )
 
-# Panel specs: (title, source, renderer)
-_panel_specs = [
-    ("Primary tumor, cells",                  src_Tsum, "line"),
-    ("Moribund tumor, cells",                  src_TM,   "line"),
-    ("Abscopal tumor, cells",                  src_T2,   "line"),
-    ("Immune signal, a.u.",                    src_A,    "line"),
-    ("Lymphocytes in TME, cells",              src_L,    "line"),
-    ("Moribund lymph. in TME, cells",          src_LM,   "line"),
-    ("Lymphocyte in abscopal site, cells",     src_LG,   "line"),
-    ("Lymphocyte production rate, cells/day",  src_d,    "line"),
-    ("Integrated tumor growth",                src_imu,  "line"),
+
+# A field's label, widget, and help text are used together in the page template.
+sections = []
+
+
+def section(title, *field_rows):
+    sections.append({"title": title, "rows": field_rows})
+
+
+fx_input = TextInput(value="1,2,3,4,5,6,7,8,9", placeholder="e.g. 1,3,5-9")
+it_input = TextInput(value="1-20", placeholder="e.g. 1-20,25-30")
+rad_type = Select(value="Photon", options=["Photon", "Carbon"])
+d_l = slider(2.0, 20, 0.1, "0.0")
+st = slider(0.5, 1, 0.01)
+section(
+    "Treatment plan",
+    (("RT mode", rad_type, "Photon or Carbon. Selects the model for the delay in radiation-induced cell death."),),
+    (("Fractionation (Fx)", fx_input, "Radiation days as a comma-separated list or inclusive ranges, e.g. 1,3,5-9. Blank means no fractions."),),
+    (("Immunotherapy (days)", it_input, "Use start-stop windows separated by commas. Each applies at start < t ≤ stop. Blank means no immunotherapy."),),
+    (("Dose d<sub>L</sub> (Gy)", d_l, "Dose per fraction to lymphocytes in the tumor microenvironment (TME). Range: 0–20 Gy."),
+     ("Survival S<sub>T</sub>", st, "Fraction of tumor cells surviving one fraction. Range: 0–1. Calculated when the LQ switch is on.")),
+)
+
+fr = slider(0.2, 1, 0.01)
+g = slider(0.63, 1, 0.01)
+k_rad = slider(0.10, 5, 0.01)
+exhaustion = Switch()
+a_l = spin(0.2, 0.01, 0, 2)
+b_l = spin(0.14, 0.01, 0, 2)
+section(
+    "Radiosensitivity & depletion",
+    (("f<sub>r</sub>", fr, "Dose to draining lymph nodes as a fraction of the TME lymphocyte dose. Range: 0–1."),
+     ("g", g, "Share of recruited lymphocytes allocated to the primary TME. The remainder go to the abscopal site. Range: 0–1.")),
+    (("k<sub>Rad</sub> (fx⁻¹)", k_rad, "Abscopal lymphocyte depletion coefficient per radiation fraction. Input range: 0–5 per fraction."),
+     ("L<sub>2</sub> exhaustion", exhaustion, "On adds an abscopal lymphocyte loss term scaled by the tumor killing and abscopal action coefficients.")),
+    (("α<sub>L</sub> (Gy⁻¹)", a_l, "Linear coefficient for lymphocyte survival in the TME and draining lymph nodes. Range: 0–2 Gy⁻¹."),
+     ("β<sub>L</sub> (Gy⁻²)", b_l, "Quadratic coefficient for lymphocyte survival in the TME and draining lymph nodes. Range: 0–2 Gy⁻².")),
+)
+
+use_lq = Switch()
+lq_dose = slider(2.0, 10, 0.1, "0.0")
+a_t = spin(0.1, 0.01, 0, 2)
+b_t = spin(0.05, 0.01, 0, 2)
+section(
+    "Tumor survival (LQ)",
+    (("Use LQ for S<sub>T</sub>", use_lq, "Off uses the entered survival fraction. On calculates it as exp(−αₜD − βₜD²)."),
+     ("Dose for LQ S<sub>T</sub>", lq_dose, "Dose per fraction used to calculate tumor survival in LQ mode. Range: 0–10 Gy.")),
+    (("α<sub>T</sub> (Gy⁻¹)", a_t, "Linear coefficient for tumor survival in LQ mode. Range: 0–2 Gy⁻¹."),
+     ("β<sub>T</sub> (Gy⁻²)", b_t, "Quadratic coefficient for tumor survival in LQ mode. Range: 0–2 Gy⁻².")),
+)
+
+t1_start = spin(1e5, 1e8, 0, np.inf, "0.2e")
+t2_start = spin(1e5, 1e8, 0, np.inf, "0.2e")
+l_start = spin(100, 100, 0, 1e6, "0.2e")
+lg_start = spin(100, 100, 0, 1e6, "0.2e")
+auto_a = Switch(active=True)
+a_start = spin(0.0, 100, -np.inf, np.inf, "0.2e")
+d_max = spin(np.inf, 1e7, -np.inf, np.inf, "0.2e")
+section(
+    "Initial conditions",
+    (("T<sub>1,start</sub>", t1_start, "Starting number of viable primary tumor cells. Range: 0 or greater."),
+     ("T<sub>2,start</sub>", t2_start, "Starting number of abscopal tumor cells. Range: 0 or greater.")),
+    (("L<sub>1,start</sub>", l_start, "Starting number of viable lymphocytes in the primary TME. Range: 0–1e6 cells."),
+     ("L<sub>2,start</sub>", lg_start, "Starting number of lymphocytes in the abscopal site. Range: 0–1e6 cells.")),
+    (("Auto A<sub>start</sub>", auto_a, "On computes the initial signal from the model. Off uses the number entered in the adjacent field."),
+     ("A<sub>start</sub>", a_start, "Manual starting level of the attraction signal. Any finite number. Used when the automatic setting is off.")),
+    (("d<sub>max</sub> (cells/day)", d_max, "Cap on the lymphocyte production rate. Zero or positive values cap the rate. Infinity or a negative value leaves it uncapped."),),
+)
+
+a1, b1, a2, b2 = (spin(value, 0.001, fmt="0.000") for value in (2.5, 0.45, 1.2, 0.4))
+amplification = spin(0.5, 0.01, 0, 5)
+fc1_base = spin(0.02, 0.001, 0, 10, "0.000")
+fc1_high = spin(0.6, 0.001, 0, 10, "0.000")
+fc4_base = spin(0.1254, 1e-4, 0, 10, "0.0000")
+fc4_high = spin(0.1254, 1e-4, 0, 10, "0.0000")
+section(
+    "Tumor growth & checkpoints",
+    (("a<sub>1</sub>", a1, "Primary tumor growth scale. Fit to the untreated growth curve. No numeric bounds in the app."),
+     ("b<sub>1</sub>", b1, "Exponent relating primary tumor size to growth rate. Fit to untreated growth. No numeric bounds in the app.")),
+    (("a<sub>2</sub>", a2, "Abscopal tumor growth scale. Fit to the untreated growth curve. No numeric bounds in the app."),
+     ("b<sub>2</sub>", b2, "Exponent relating abscopal tumor size to growth rate. Fit to untreated growth. No numeric bounds in the app.")),
+    (("Abscopal amplification", amplification, "Scales lymphocyte action on the abscopal tumor relative to the primary tumor. Range: 0–5."),),
+    (("f<sub>P,base</sub>", fc1_base, "Lymphocyte-mediated tumor killing coefficient outside immunotherapy windows. Range: 0–10."),
+     ("f<sub>P,IT</sub>", fc1_high, "Lymphocyte-mediated tumor killing coefficient during immunotherapy windows. Range: 0–10.")),
+    (("f<sub>C,base</sub>", fc4_base, "Lymphocyte replenishment coefficient outside immunotherapy windows. Range: 0–10."),
+     ("f<sub>C,IT</sub>", fc4_high, "Lymphocyte replenishment coefficient during immunotherapy windows. Range: 0–10.")),
+)
+
+rho = spin(0.30, 0.001, -100, 100, "0.000")
+lam = spin(0.30, 0.001, -100, 100, "0.000")
+psi = spin(14.0, 0.01, -100, 100)
+mu_l = spin(-0.15, 0.001, -100, 100, "0.000")
+section(
+    "Immune signal",
+    (("ρ", rho, "Baseline attraction signal produced per viable tumor cell and unit time. Input range: −100 to 100."),
+     ("λ", lam, "Decay coefficient of the attraction signal. Positive values reduce the signal. Input range: −100 to 100.")),
+    (("ψ", psi, "Multiplier for attraction signals released when irradiated tumor cells die. Input range: −100 to 100."),
+     ("μ<sub>L</sub> (day⁻¹)", mu_l, "Net lymphocyte growth or decay coefficient. Negative values represent loss. Input range: −100 to 100 day⁻¹.")),
+)
+
+dt = spin(0.1, 0.001, 0.0001, 3, "0.0000")
+t_min = spin(0, 0.5, 0, 100, "0.0")
+t_max = spin(60, 0.5, 1, np.inf, "0.0")
+section(
+    "Simulation time",
+    (("Time step Δt (days)", dt, "Time between simulation samples and integration steps. Range: 0.0001–3 days."),),
+    (("t<sub>min</sub> (days)", t_min, "The field accepts 0–100 days. The current simulation always starts at day 0."),
+     ("t<sub>max</sub> (days)", t_max, "Simulation horizon. Range: 1 day or greater.")),
+)
+
+plan_inputs = {
+    "a1": a1, "b1": b1, "a2": a2, "b2": b2, "amplification": amplification,
+    "fc1base": fc1_base, "fc1high": fc1_high, "fc4base": fc4_base, "fc4high": fc4_high,
+    "stepsize": dt, "mintime": t_min, "maxtime": t_max, "T1start": t1_start, "T2start": t2_start,
+    "Lstart": l_start, "LGstart": lg_start, "rho": rho, "lam": lam, "psi": psi, "muL": mu_l,
+}
+
+# The order here defines the rows in the individual-plots view.
+plot_specs = [
+    ("primary", "Primary tumor", "Cells", "Primary", "solid"),
+    ("moribund", "Moribund tumor", "Cells", "Moribund", "dashed"),
+    ("abscopal", "Abscopal tumor", "Cells", "Abscopal", "solid"),
+    ("tme", "TME lymphocytes", "Cells", "L in TME", "solid"),
+    ("moribund_tme", "Moribund TME lymphocytes", "Cells", "Moribund L in TME", "dotted"),
+    ("abscopal_lymphocytes", "Abscopal lymphocytes", "Cells", "Abscopal L", "dashed"),
+    ("signal", "Immune signal", "Signal (a.u.)", "Immune signal", "solid"),
+    ("production", "Lymphocyte production", "Cells/day", "L production", "dotted"),
+    ("integrated", "Integrated primary growth rate", "∫ μ₁ dt (dimensionless)", "", "solid"),
 ]
+sources = {key: ColumnDataSource(data={"x": [], "y": []}) for key, *_ in plot_specs}
+combined_renderers = {}
+individual_tab = TabPanel(title="Individual plots", child=column())
+combined_tab = TabPanel(title="Selected plots", child=column())
+results = Tabs(
+    tabs=[individual_tab, combined_tab], sizing_mode="stretch_both", name="results",
+    stylesheets=[TABS_STYLE],
+)
+log_x = CheckboxGroup(labels=["Log X"], width=53, margin=0)
+log_y = CheckboxGroup(labels=["Log Y"], width=53, margin=0)
+x_range_input = TextInput(title="X range", placeholder="Auto", width=100, margin=0, stylesheets=[WIDGET_STYLE])
+y_range_input = TextInput(title="Y range", placeholder="Auto", width=100, margin=0, stylesheets=[WIDGET_STYLE])
+for control in (log_x, log_y, x_range_input, y_range_input):
+    control.align = "end"
+plot_controls = row(log_x, log_y, x_range_input, y_range_input, spacing=12, name="plot_controls")
+status = Div(name="status", sizing_mode="stretch_width")
 
-# grid_container holds the current gridplot so we can swap it on toggle
-grid_container = column()
+# Use plain numbers near unity and scientific notation for large or tiny values.
+NUMBER_FORMAT = """
+const value = Number(VALUE.toPrecision(4))
+if (value === 0 || (Math.abs(value) >= 0.01 && Math.abs(value) < 1000))
+    return String(value)
+return value.toExponential().replace("e+", "e")
+"""
 
-def apply_combined_visibility():
-    selected = set(combined_selector.value)
-    for label, renderer in combined_renderers.items():
-        renderer.visible = label in selected
-    for label, renderer in combined_legend_renderers.items():
-        renderer.visible = label in selected
 
-def build_grid(attr, old, new):
-    global combined_renderers, combined_legend, combined_legend_renderers
+def parse_range(text, logarithmic):
+    try:
+        low, high = map(float, text.replace(";", ",").split(","))
+    except ValueError:
+        return None
+    if not (np.isfinite(low) and np.isfinite(high) and low < high):
+        return None
+    return None if logarithmic and low <= 0 else (low, high)
 
-    # Preserve current selected/on state across full grid rebuilds.
-    prev_selected = list(combined_selector.value)
-    if combined_renderers:
-        prev_selected = [
-            label for label in combined_series_labels
-            if label in combined_renderers and combined_renderers[label].visible
-        ]
 
-    y_type = "log" if 0 in log_y_box.active else "linear"
-    x_type = "log" if 0 in log_x_box.active else "linear"
-    xr = _parse_range(xrange_input.value)
-    yr = _parse_range(yrange_input.value)
-    figs = [make_fig(title, src, rend,
-                     y_axis_type=y_type, x_axis_type=x_type,
-                     x_range=xr, y_range=yr)
-            for title, src, rend in _panel_specs]
+def axis_range(bounds):
+    if bounds is not None:
+        return Range1d(*bounds)
+    return DataRange1d(range_padding=0.04, only_visible=True)
 
-    p_combined = make_fig(
-        "Selected plots",
-        src_Tsum,
-        "none",
-        y_axis_type=y_type,
-        x_axis_type=x_type,
-        x_range=xr,
-        y_range=yr
+
+def make_plot(title, y_label, x_range, y_bounds, *, combined=False):
+    plot = figure(
+        title=title, x_axis_label="Time (days)", y_axis_label=y_label,
+        x_axis_type="log" if log_x.active else "linear",
+        y_axis_type="log" if log_y.active else "linear",
+        x_range=x_range, y_range=axis_range(y_bounds),
+        sizing_mode="stretch_both", min_border=7, min_border_left=60,
+        background_fill_color="#ffffff", border_fill_color="#ffffff",
+        outline_line_color=None, toolbar_location="above",
+        tools="pan,box_zoom,wheel_zoom,reset,save", active_scroll=None,
+        styles={"border": "1px solid #dae6e2", "border-radius": "12px"},
     )
-    combined_renderers = {}
-    combined_legend_renderers = {}
-    for selector_label, (legend_label, source, color) in combined_series_config.items():
-        combined_renderers[selector_label] = p_combined.line(
-            "x",
-            "y",
-            source=source,
-            line_width=2,
-            color=color
-        )
+    plot.toolbar.logo = None
+    plot.title.text_font = "system-ui"
+    plot.title.text_font_style = "bold"
+    plot.title.text_font_size = "13px"
+    plot.title.text_color = "#18302b"
+    plot.title.standoff = 6
+    plot.grid.grid_line_color = "#e8efec"
+    plot.grid.minor_grid_line_color = None
+    for axis in (plot.xaxis[0], plot.yaxis[0]):
+        axis.formatter = CustomJSTickFormatter(code=NUMBER_FORMAT.replace("VALUE", "tick"))
+        axis.ticker.desired_num_ticks = 6 if combined else 4
+        axis.axis_label_text_font = axis.major_label_text_font = "system-ui"
+        axis.axis_label_text_font_style = "normal"
+        axis.axis_label_text_font_size = "11px"
+        axis.major_label_text_font_size = "10px"
+        axis.axis_label_text_color = axis.major_label_text_color = "#49605a"
+        axis.axis_line_color = axis.major_tick_line_color = "#a7bbb4"
+        axis.minor_tick_line_color = None
+    return plot
 
-    # Keep plot size identical to all other panels; host legend in a separate side panel.
-    legend_host = figure(
-        width=140,
-        height=220,
-        toolbar_location=None,
-        outline_line_color=None,
-        min_border=0
+
+def add_line(plot, spec, *, combined=False):
+    key, title, _, legend, dash = spec
+    kwargs = {"legend_label": legend} if combined else {}
+    return plot.line(
+        "x", "y", source=sources[key], name=legend or title,
+        line_color=COLORS[key], line_dash=dash, line_width=2, **kwargs,
     )
-    legend_host.x_range = Range1d(0, 1)
-    legend_host.y_range = Range1d(0, 1)
-    legend_host.xaxis.visible = False
-    legend_host.yaxis.visible = False
-    legend_host.xgrid.visible = False
-    legend_host.ygrid.visible = False
-    for selector_label, (_, _, color) in combined_series_config.items():
-        proxy = legend_host.line(
-            [-2, -1], [-2, -1],
-            line_width=2,
-            color=color
-        )
-        proxy.js_link("visible", combined_renderers[selector_label], "visible")
-        combined_legend_renderers[selector_label] = proxy
-    combined_legend = Legend(
-        items=[
-            LegendItem(label=combined_series_config[label][0], renderers=[combined_legend_renderers[label]])
-            for label in combined_series_labels
-        ],
-        click_policy="hide",
-        label_text_font_size="11pt",
-        spacing=2,
-        padding=2,
-        margin=2,
-        glyph_width=15,
-        glyph_height=13,
-        label_height=14,
-        label_standoff=2,
-        ncols=1,
+
+
+def make_hover(renderers="auto", *, combined=False):
+    number = CustomJSHover(code=NUMBER_FORMAT.replace("VALUE", "value"))
+    tooltips = [("Time (days)", "@x{custom}"), ("Value", "@y{custom}")]
+    if combined:
+        tooltips.insert(0, ("Series", "$name"))
+    return HoverTool(
+        renderers=renderers, mode="vline", tooltips=tooltips,
+        formatters={"@x": number, "@y": number},
     )
-    combined_legend.location = "top_left"
-    legend_host.add_layout(combined_legend)
-    combined_selector.value = prev_selected
-    apply_combined_visibility()
-
-    combined_cell = row(p_combined, legend_host, spacing=0)
-    new_grid = gridplot([figs[:4] + [combined_cell], figs[4:]])
-    grid_container.children = [new_grid]
-
-build_grid(None, None, None)
-
-log_y_box.on_change("active", build_grid)
-log_x_box.on_change("active", build_grid)
-xrange_input.on_change("value", build_grid)
-yrange_input.on_change("value", build_grid)
-combined_selector.on_change("value", lambda attr, old, new: apply_combined_visibility())
 
 
-# ========= Helpers =========
+def build_plots():
+    previous = {key: glyph.visible for key, glyph in combined_renderers.items()}
+    x_bounds = parse_range(x_range_input.value, log_x.active)
+    y_bounds = parse_range(y_range_input.value, log_y.active)
+    shared_x = axis_range(x_bounds)
+    cursor = Span(
+        dimension="height", line_color="#71958a", line_dash="dashed",
+        line_alpha=0.85, syncable=False,
+    )
+    individual = []
+    hover = make_hover()
+    for spec in plot_specs:
+        _, title, y_label, _, _ = spec
+        plot = make_plot(title, y_label, shared_x, y_bounds)
+        add_line(plot, spec)
+        plot.add_tools(hover, CrosshairTool(overlay=cursor))
+        individual.append(plot)
+
+    grid = gridplot(
+        individual, ncols=3, sizing_mode="stretch_both", toolbar_location="above",
+        toolbar_options={"logo": None, "autohide": False},
+    )
+    grid.spacing = 8
+    grid.rows = grid.cols = "1fr"
+    individual_tab.child = grid
+
+    overlay = make_plot("Selected plots", "Model value", axis_range(x_bounds), y_bounds, combined=True)
+    combined_renderers.clear()
+    for spec in plot_specs:
+        key, _, _, legend, _ = spec
+        if legend:
+            glyph = add_line(overlay, spec, combined=True)
+            glyph.visible = previous.get(key, True)
+            combined_renderers[key] = glyph
+    legend = overlay.legend[0]
+    legend.click_policy = "hide"
+    legend.label_text_font_size = "11px"
+    legend.border_line_color = None
+    legend.background_fill_color = "#f6f9f8"
+    legend.background_fill_alpha = 1
+    overlay.center.remove(legend)
+    overlay.add_layout(legend, "right")
+    overlay.add_tools(make_hover(list(combined_renderers.values()), combined=True))
+    combined_tab.child = overlay
+
+
 def parse_fx(text):
-    out = []
     if not text:
-        return [np.inf]
+        return []
+    out = []
     for token in text.replace(" ", "").split(","):
         if not token:
             continue
         if "-" in token:
-            a, b = token.split("-")
-            a, b = int(float(a)), int(float(b))
-            out.extend(list(range(min(a,b), max(a,b)+1)))
+            a, b = (int(float(endpoint)) for endpoint in token.split("-"))
+            out.extend(range(min(a, b), max(a, b) + 1))
         else:
             out.append(float(token))
-    out = sorted(set(out))
-    return out
+    if not out:
+        raise ValueError("Enter at least one fraction day or leave the field blank.")
+    return sorted(set(out))
 
-def parse_ITperiods(text):
-    text = text.strip()
-    if not text:
+
+def parse_it_periods(text):
+    if not text.strip():
         return None
     periods = []
     for token in text.replace(" ", "").split(","):
         if not token:
             continue
         if "-" not in token:
-            raise ValueError(f"Invalid IT token '{token}'. Use 'start-stop'.")
+            raise ValueError(f"Invalid IT window '{token}'. Use 'start-stop'.")
         start, stop = token.split("-")
         periods.append((float(start), float(stop)))
     return periods
 
 
-def gather_parameters():
-    Astart = None if 0 in auto_Astart_box.active else float(sp_Astart.value)
-    return dict(
-        a1=float(sp_a1.value), b1=float(sp_b1.value),
-        a2=float(sp_a2.value), b2=float(sp_b2.value),
-        amplification=float(sp_amp.value),
-        fc1base=float(sp_fc1b.value), fc1high=float(sp_fc1h.value),
-        fc4base=float(sp_fc4b.value), fc4high=float(sp_fc4h.value),
-        stepsize=float(sp_dt.value),
-        mintime=float(sp_tmin.value),
-        maxtime=float(sp_tmax.value),
-        maxvol=float(sp_mv.value),
-        maxvol2=float(sp_mv2.value),
-        T1start=float(sp_T1start.value),
-        T2start=float(sp_T2start.value),
-        Lstart=float(sp_Lstart.value),
-        LGstart=float(sp_LGstart.value),
-        Astart=Astart,
-        rho=float(sp_rho.value),
-        lam=float(sp_lam.value),
-        psi=float(sp_psi.value),
-        muL=float(sp_muL.value)
-    )
-
-def sync_astart_mode():
-    sp_Astart.disabled = 0 in auto_Astart_box.active
-
-
-def reset_all():
-    sp_a1.value = pc_defaults["a1"]
-    sp_b1.value = pc_defaults["b1"]
-    sp_a2.value = pc_defaults["a2"]
-    sp_b2.value = pc_defaults["b2"]
-    sp_amp.value = pc_defaults["amplification"]
-    sp_fc1b.value = pc_defaults["fc1base"]
-    sp_fc1h.value = pc_defaults["fc1high"]
-    sp_fc4b.value = pc_defaults["fc4base"]
-    sp_fc4h.value = pc_defaults["fc4high"]
-    sp_dt.value   = pc_defaults["stepsize"]
-    sp_tmin.value = pc_defaults["mintime"]
-    sp_tmax.value = pc_defaults["maxtime"]
-    sp_mv.value   = pc_defaults["maxvol"]
-    sp_mv2.value  = pc_defaults["maxvol2"]
-    sp_T1start.value = pc_defaults["T1start"]
-    sp_T2start.value = pc_defaults["T2start"]
-    sp_Lstart.value  = pc_defaults["Lstart"]
-    sp_LGstart.value = pc_defaults["LGstart"]
-    sp_dmax.value    = pc_defaults["d_max"]
-    sp_Astart.value  = pc_defaults["Astart"]
-    auto_Astart_box.active = [0]
-    sync_astart_mode()
-    sp_rho.value = pc_defaults["rho"]
-    sp_lam.value = pc_defaults["lam"]
-    sp_psi.value = pc_defaults["psi"]
-    sp_muL.value = pc_defaults["muL"]
-
-    fx_input.value = "1,2,3,4,5,6,7,8,9"
-    dL_slider.value = 2.0
-    it_input.value = "1-20"
-    ST_slider.value = ST_default
-    fr_slider.value = 0.2
-    g_slider.value  = 0.63
-    kRad_slider.value = 0.10
-
-    use_lq.active = []
-    radType_box.active = []
-    L2_exhaustion_box.active = []
-    dose_for_ST.value = 2.0
-    aT_spin.value = 0.1
-    bT_spin.value = 0.05
-    aL_spin.value = aL_default
-    bL_spin.value = bL_default
-
-    # Reset plot-view controls
-    log_y_box.active = []
-    log_x_box.active = []
-    xrange_input.value = ""
-    yrange_input.value = ""
-    combined_selector.value = combined_series_labels.copy()
-
-    update()
-
-
-# ========= Main update =========
-status = Div(text="", width=600)
-
-def update(_=None):
+def update():
     try:
-        fx = parse_fx(fx_input.value)
-        if not fx:
-            raise ValueError("fx is empty. Provide at least one fraction index.")
+        params = {key: float(widget.value) for key, widget in plan_inputs.items()}
+        params["Astart"] = None if auto_a.active else float(a_start.value)
+        a_start.disabled = auto_a.active
+        st.disabled = use_lq.active
+        survival = float(st.value)
+        if use_lq.active:
+            dose = lq_dose.value
+            survival = float(np.exp(-(a_t.value * dose + b_t.value * dose**2)))
+            st.value = round(survival, 4)
 
-        params = gather_parameters()
-        d_L = float(dL_slider.value)
-        ITperiods = parse_ITperiods(it_input.value)
-        fr = float(fr_slider.value)
-        g  = float(g_slider.value)
-        kRad = float(kRad_slider.value)
-        aL = float(aL_spin.value)
-        bL = float(bL_spin.value)
-        d_max = float(sp_dmax.value) if sp_dmax.value >= 0 else np.inf
-
-        rho = float(sp_rho.value)
-        lam = float(sp_lam.value)
-        psi = float(sp_psi.value)
-        muL = float(sp_muL.value)
-
-        if 0 in use_lq.active:
-            ST = float(LQmodel(dose_for_ST.value, float(aT_spin.value), float(bT_spin.value)))
-            ST_slider.value = round(float(ST), 4)
-        else:
-            ST = float(ST_slider.value)
-
-        radType = "carbon" if 0 in radType_box.active else "photon"
-
-        Tarr, TMarr, T2arr, Aarr, Larr, LMarr, LGarr, imuteff, timearr, darr = rit_simulation(
-            fx=fx,
-            dose=d_L,
-            ITperiods=ITperiods,
-            ST=ST,
-            fr=fr,
-            parameters=params,
-            g=g,
-            kRadL=kRad,
-            radType=radType,
-            aL=aL,
-            bL=bL,
-            d_max=d_max,
-            use_L2_exhaustion=0 in L2_exhaustion_box.active
+        result = rit_simulation(
+            fx=parse_fx(fx_input.value), dose=float(d_l.value), ITperiods=parse_it_periods(it_input.value),
+            ST=survival, fr=float(fr.value), parameters=params, g=float(g.value),
+            kRadL=float(k_rad.value), radType=rad_type.value.lower(),
+            aL=float(a_l.value), bL=float(b_l.value),
+            d_max=float(d_max.value) if d_max.value >= 0 else np.inf,
+            use_L2_exhaustion=exhaustion.active, return_dict=True,
         )
+        values = {
+            "primary": result["Tarr"] + result["TMarr"],
+            "moribund": result["TMarr"], "abscopal": result["T2arr"],
+            "tme": result["Larr"] + result["LMarr"], "moribund_tme": result["LMarr"],
+            "abscopal_lymphocytes": result["LGarr"], "signal": result["Aarr"],
+            "production": result["darr"], "integrated": result["imuteffarr"],
+        }
+        for key, source in sources.items():
+            source.data = {"x": result["timearr"], "y": values[key]}
+        status.text = '<span class="rit-success" role="status">Simulation updated</span>'
+    except (TypeError, ValueError, OverflowError, ZeroDivisionError) as error:
+        status.text = f'<span role="alert" style="color:#a43842">{escape(str(error))}</span>'
 
-        src_Tsum.data = dict(x=timearr, y=np.asarray(Tarr) + np.asarray(TMarr))
-        src_TM.data   = dict(x=timearr, y=np.asarray(TMarr))
-        src_T2.data   = dict(x=timearr, y=np.asarray(T2arr))
-        src_A.data    = dict(x=timearr, y=np.asarray(Aarr))
-        src_L.data    = dict(x=timearr, y=np.asarray(Larr) + np.asarray(LMarr))
-        src_LM.data   = dict(x=timearr, y=np.asarray(LMarr))
-        src_LG.data   = dict(x=timearr, y=np.asarray(LGarr))
-        src_d.data    = dict(x=timearr, y=np.asarray(darr))
-        src_imu.data  = dict(x=timearr, y=np.asarray(imuteff))
 
-        status.text = "<b>OK.</b> Simulation updated."
-    except Exception as e:
-        status.text = f"<b style='color:red'>Error:</b> {e}"
+def on_input(attr, old, new):
+    if not resetting:
+        update()
 
-# Wire updates (live)
-def _cb(attr, old, new):
+
+def on_survival(attr, old, new):
+    if not use_lq.active:
+        on_input(attr, old, new)
+
+
+def on_plot_option(attr, old, new):
+    if not resetting:
+        build_plots()
+
+
+def reset():
+    global resetting
+    resetting = True
+    try:
+        for widget, prop, value in defaults:
+            setattr(widget, prop, value)
+        for glyph in combined_renderers.values():
+            glyph.visible = True
+    finally:
+        resetting = False
     update()
+    build_plots()
 
-def _cb_astart_mode(attr, old, new):
-    sync_astart_mode()
-    update()
 
-value_widgets = [
-    sp_a1, sp_b1, sp_a2, sp_b2, sp_amp, sp_fc1b, sp_fc1h, sp_fc4b, sp_fc4h,
-    sp_dt, sp_tmin, sp_tmax, sp_mv, sp_mv2,
-    sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax, sp_Astart,
-    sp_rho, sp_lam, sp_psi, sp_muL,
-    fx_input, dL_slider, it_input, ST_slider, fr_slider, g_slider, kRad_slider,
-    dose_for_ST, aT_spin, bT_spin, aL_spin, bL_spin
-]
-for w in value_widgets:
-    w.on_change("value", _cb)
+document = curdoc()
+template_sections = []
+defaults = []
+resetting = False
+for section_index, group in enumerate(sections):
+    template_rows = []
+    for row_index, fields in enumerate(group["rows"]):
+        template_fields = []
+        for field_index, (label, widget, help_text) in enumerate(fields):
+            name = f"field_{section_index}_{row_index}_{field_index}"
+            widget.name = name
+            widget.margin = 0
+            widget.stylesheets = [WIDGET_STYLE]
+            if isinstance(widget, Switch):
+                widget.stylesheets = [SWITCH_STYLE]
+            else:
+                widget.sizing_mode = "stretch_width"
+            prop = "active" if isinstance(widget, Switch) else "value"
+            defaults.append((widget, prop, getattr(widget, prop)))
+            widget.on_change(prop, on_survival if widget is st else on_input)
+            document.add_root(widget)
+            template_fields.append({"name": name, "label": label, "help": help_text, "switch": prop == "active"})
+        template_rows.append(template_fields)
+    template_sections.append({"title": group["title"], "rows": template_rows})
 
-use_lq.on_change("active", _cb)
-radType_box.on_change("active", _cb)
-L2_exhaustion_box.on_change("active", _cb)
-auto_Astart_box.on_change("active", _cb_astart_mode)
+for widget, prop in ((log_x, "active"), (log_y, "active"), (x_range_input, "value"), (y_range_input, "value")):
+    defaults.append((widget, prop, getattr(widget, prop)))
+    widget.on_change(prop, on_plot_option)
 
-btn.on_click(lambda: update())
-reset_btn.on_click(reset_all)
+run_button = Button(
+    label="Update simulation", button_type="success", sizing_mode="stretch_width", margin=0,
+    stylesheets=["""
+        :host .bk-btn-success { background: #087d69; border-color: #087d69; }
+        :host .bk-btn-success:hover { background: #096457; }
+    """],
+)
+reset_button = Button(label="Reset to defaults", sizing_mode="stretch_width", margin=0)
+run_button.on_click(update)
+reset_button.on_click(reset)
+actions = column(run_button, reset_button, spacing=6, sizing_mode="stretch_width", name="actions")
 
-sync_astart_mode()
 update()
-
-# ========= Layout =========
-pc_col1 = column(
-    Div(text="<b>Plan constants</b> (you can type numbers)"),
-    row(
-        sp_a1, sp_b1, sp_a2, sp_b2, sp_amp,
-        sp_fc1b, sp_fc1h, sp_fc4b, sp_fc4h,
-        sp_dt, sp_tmin, sp_tmax, sp_mv, sp_mv2
-    ),
-    row(
-        sp_T1start, sp_T2start, sp_Lstart, sp_LGstart, sp_dmax, sp_Astart, auto_Astart_box,
-        sp_rho, sp_lam, sp_psi, sp_muL
-    ),
-    sizing_mode="stretch_width"
-)
-
-plan_section = column(
-    Div(text="<b>Treatment plan</b>"),
-    row(dL_slider, fx_input, g_slider, aL_spin, bL_spin, ST_slider,
-        column(radType_box, use_lq, L2_exhaustion_box)),
-    row(
-        fr_slider,
-        it_input,
-        kRad_slider,
-        aT_spin, bT_spin,
-        dose_for_ST,
-        column(btn, reset_btn)
-    ),
-    sizing_mode="stretch_width"
-)
-
-plot_controls = row(
-    Div(text="<b>Plot view:</b>"),
-    column(log_x_box, log_y_box),
-    xrange_input,
-    yrange_input,
-    # combined_selector,  # hidden: legend is interactive and used as the plot toggle UI
-)
-
-curdoc().add_root(column(pc_col1, plan_section, plot_controls, grid_container, status))
-
-curdoc().title = "RIT Interactive (Bokeh)"
+build_plots()
+for layout in (actions, status, plot_controls, results):
+    document.add_root(layout)
+document.template = TEMPLATE.read_text(encoding="utf-8")
+document.template_variables["parameter_sections"] = template_sections
+document.title = "RIT Simulator"

@@ -1,0 +1,242 @@
+{% from macros import embed %}
+
+{% block postamble %}
+<style>
+  :root {
+    --ink: #18302b;
+    --muted: #49605a;
+    --edge: #dae6e2;
+    --paper: #fff;
+    --canvas: #f3f7f5;
+    --tint: #e9f4ef;
+    --accent: #087d69;
+    color-scheme: light;
+    color: var(--ink);
+    background: var(--canvas);
+    font: 14px/1.4 system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  h1, h2, p { margin: 0; }
+  button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .rit-page {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100dvh;
+  }
+  .rit-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 20px;
+    padding: 12px clamp(16px, 2vw, 32px);
+    border-bottom: 1px solid var(--edge);
+    background: linear-gradient(110deg, var(--tint), var(--paper) 70%);
+  }
+  .rit-header h1 { font-size: clamp(23px, 2vw, 30px); letter-spacing: -.04em; line-height: 1.1; }
+  .rit-header p { margin-top: 4px; font-size: 12px; color: var(--muted); }
+  .rit-layout {
+    display: grid;
+    grid-template-columns: clamp(260px, 21vw, 332px) minmax(0, 1fr);
+    gap: clamp(10px, 1.2vw, 22px);
+    min-height: 0;
+    padding: 12px clamp(12px, 1.4vw, 24px);
+  }
+  .rit-sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 12px;
+    border: 1px solid var(--edge);
+    border-radius: 12px;
+    background: var(--paper);
+  }
+  .rit-parameter-groups { min-height: 0; overflow: auto; scrollbar-width: thin; }
+  .rit-sidebar h2 { margin-bottom: 7px; font-size: 18px; letter-spacing: -.025em; }
+  .rit-sidebar details { border-top: 1px solid var(--edge); }
+  .rit-sidebar summary {
+    position: relative;
+    padding: 7px 17px 7px 0;
+    cursor: pointer;
+    list-style: none;
+    font-size: 12px;
+    font-weight: 650;
+  }
+  .rit-sidebar summary::-webkit-details-marker { display: none; }
+  .rit-sidebar summary::after {
+    content: "";
+    position: absolute;
+    top: 12px;
+    right: 4px;
+    width: 6px;
+    height: 6px;
+    border: solid var(--muted);
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+  }
+  .rit-sidebar details[open] summary { color: var(--accent); }
+  .rit-sidebar details[open] summary::after { transform: rotate(225deg); top: 14px; }
+  .rit-fields { display: grid; gap: 7px; padding: 0 0 12px; }
+  .rit-field-row { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; gap: 9px; }
+  .rit-field { min-width: 0; }
+  .rit-field-heading { display: flex; align-items: center; gap: 3px; min-height: 20px; }
+  .rit-field-label { color: var(--muted); font-size: 11px; font-weight: 650; }
+  .rit-field-label sub { line-height: 0; font-size: .79em; }
+  .rit-info {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 19px;
+    height: 19px;
+    padding: 0;
+    color: var(--accent);
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    font: inherit;
+    cursor: help;
+  }
+  .rit-info:hover, .rit-info:focus-visible { background: var(--tint); }
+  .rit-switch { display: flex; align-items: center; gap: 6px; min-height: 28px; color: var(--muted); font-size: 11px; }
+  .rit-switch:not(:has(.active)) .rit-off, .rit-switch:has(.active) .rit-on { color: var(--accent); font-weight: 700; }
+  .rit-actions { flex: none; border-top: 1px solid var(--edge); padding-top: 10px; }
+  .rit-status { padding-top: 7px; min-height: 24px; font-size: 11px; }
+  .rit-success { color: var(--accent); }
+  .rit-results {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+  }
+  .rit-plot-options {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .rit-plots { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); min-height: 0; min-width: 0; }
+  .rit-help {
+    position: fixed;
+    z-index: 20;
+    width: max-content;
+    max-width: min(280px, calc(100vw - 16px));
+    padding: 8px 10px;
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    background: var(--paper);
+    box-shadow: 0 5px 18px #17302c26;
+    font-size: 12px;
+    line-height: 1.45;
+    pointer-events: none;
+  }
+  @media (max-width: 900px) {
+    .rit-layout { grid-template-columns: 236px minmax(0, 1fr); }
+  }
+  @media (max-width: 740px) {
+    .rit-page { height: auto; }
+    .rit-layout { grid-template-columns: minmax(0, 1fr); }
+    .rit-results { height: 810px; }
+    .rit-plots { overflow-x: auto; grid-template-columns: minmax(660px, 1fr); }
+  }
+</style>
+{% endblock %}
+
+{% block contents %}
+<div class="rit-page">
+  <header class="rit-header">
+    <div>
+      <h1>RIT Simulator</h1>
+      <p>Radio-immunotherapy · Tumor–immune dynamics</p>
+    </div>
+    <div class="rit-plot-options" role="group" aria-label="Plot view">
+      {{ embed(roots.plot_controls) }}
+    </div>
+  </header>
+  <div class="rit-layout">
+    <aside class="rit-sidebar" aria-labelledby="rit-parameters">
+      <h2 id="rit-parameters">Parameters</h2>
+      <div class="rit-parameter-groups">
+        {% for section in parameter_sections %}
+        <details name="rit-parameters"{% if loop.first %} open{% endif %}>
+          <summary>{{ section.title }}</summary>
+          <div class="rit-fields">
+            {% for row in section.rows %}
+            <div class="rit-field-row">
+              {% for field in row %}
+              <div class="rit-field">
+                <div class="rit-field-heading">
+                  <span class="rit-field-label">{{ field.label | safe }}</span>
+                  <button class="rit-info" type="button" aria-label="About {{ field.label | striptags }}"
+                          data-help="{{ field.help | e }}"><span aria-hidden="true">ⓘ</span></button>
+                </div>
+                {% if field.switch %}
+                <div class="rit-switch">
+                  <span class="rit-off" aria-hidden="true">Off</span>
+                  {{ embed(roots[field.name]) }}
+                  <span class="rit-on" aria-hidden="true">On</span>
+                </div>
+                {% else %}
+                {{ embed(roots[field.name]) }}
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+            {% endfor %}
+          </div>
+        </details>
+        {% endfor %}
+      </div>
+      <div class="rit-actions">{{ embed(roots.actions) }}</div>
+      <div class="rit-status">{{ embed(roots.status) }}</div>
+    </aside>
+    <main class="rit-results" aria-label="Simulation results">
+      <div class="rit-plots">{{ embed(roots.results) }}</div>
+    </main>
+  </div>
+</div>
+<div id="rit-help" class="rit-help" role="tooltip" hidden></div>
+<script>
+  (() => {
+    const tooltip = document.getElementById("rit-help");
+    let current;
+    function hide() {
+      if (!current) return;
+      current.removeAttribute("aria-describedby");
+      current = undefined;
+      tooltip.hidden = true;
+    }
+    function show(button) {
+      hide();
+      current = button;
+      tooltip.textContent = button.dataset.help;
+      tooltip.hidden = false;
+      const rect = button.getBoundingClientRect();
+      const x = Math.max(8, Math.min(rect.right + 7, innerWidth - tooltip.offsetWidth - 8));
+      const below = rect.bottom + 5;
+      const y = below + tooltip.offsetHeight <= innerHeight - 8
+        ? below : Math.max(8, rect.top - tooltip.offsetHeight - 5);
+      tooltip.style.left = `${x}px`;
+      tooltip.style.top = `${y}px`;
+      button.setAttribute("aria-describedby", tooltip.id);
+    }
+    for (const button of document.querySelectorAll(".rit-info")) {
+      button.addEventListener("mouseenter", () => show(button));
+      button.addEventListener("mouseleave", () => {
+        if (document.activeElement !== button) hide();
+      });
+      button.addEventListener("focus", () => show(button));
+      button.addEventListener("blur", hide);
+      button.addEventListener("click", () => show(button));
+      button.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") hide();
+      });
+    }
+    document.querySelector(".rit-parameter-groups").addEventListener("scroll", hide);
+    window.addEventListener("resize", hide);
+    document.addEventListener("pointerdown", (event) => {
+      if (current && !current.contains(event.target)) hide();
+    });
+  })();
+</script>
+{% endblock %}

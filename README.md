@@ -30,7 +30,7 @@ Plotted outputs:
 - Moribund lymphocytes in TME (`LM`)
 - Lymphocytes in abscopal site (`LG`)
 - Lymphocyte production rate (`d`)
-- Integrated lymphocyte production (`imuteff`)
+- Integrated primary tumor growth coefficient (`imuteff`, the time integral of μ₁)
 
 ## Main Controls
 
@@ -38,7 +38,7 @@ Plan constants and numerics:
 
 - Growth/interaction constants: `a1`, `b1`, `a2`, `b2`, `amplification`
 - Immune schedule levels: `fc1base`, `fc1high`, `fc4base`, `fc4high`
-- Time and volume controls: `stepsize`, `mintime`, `maxtime`, `maxvol`, `maxvol2`
+- Time controls: `stepsize`, `mintime`, `maxtime`
 
 Initial conditions and immune-signal setup:
 
@@ -63,12 +63,13 @@ Treatment and radiosensitivity:
 - Optional `L2 exhaustion` toggle (off by default): adds `-fc1 * amplification * LG` to the abscopal lymphocyte rate
 - Lymphocyte radiosensitivity (`a_L`, `b_L`)
 - Optional LQ override for tumor survival (`Use LQ model for ST`, `a_T`, `b_T`, dose)
-- RT mode toggle (`Photon` / `Carbon`)
+- RT mode selector (`Photon` / `Carbon`)
 
 Plot view controls:
 
+- `Individual plots` shows a 3×3 grid with a linked time axis and crosshair. `Selected plots` combines the main series with a clickable legend.
 - Toggle `Log X scale` and `Log Y scale`
-- Manual axis ranges via `X range (min,max)` and `Y range (min,max)`
+- Enter manual axis ranges as `min,max` in `X range` or `Y range`.
 
 ## Run Locally
 
@@ -101,13 +102,14 @@ Then open:
 
 ## Repository Layout
 
-- `rit_bokeh_app.py`: Bokeh UI and callbacks
+- `rit_bokeh_app.py`: Bokeh widgets, plots, and callbacks
+- `rit_dashboard.html`: dashboard layout and parameter help
 - `simulationFunctions.py`: numerical kernels and `rit_simulation`
 - `requirements.txt`: runtime dependencies
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - bokeh
 - numpy
 - scipy
