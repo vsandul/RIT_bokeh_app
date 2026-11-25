@@ -191,6 +191,10 @@ plot_specs = [
     ("production", "Lymphocyte production", "Cells/day", "L production", "dotted"),
     ("integrated", "Integrated primary growth rate", "∫ μ₁ dt (dimensionless)", "", "solid"),
 ]
+plot_title_notes = {
+    "primary": "Total primary tumor cells, including moribund tumor cells (T₁ + Tₘ).",
+    "tme": "Total lymphocytes in the tumor microenvironment, including moribund TME lymphocytes (L₁ + Lₘ).",
+}
 sources = {key: ColumnDataSource(data={"x": [], "y": []}) for key, *_ in plot_specs}
 combined_renderers = {}
 # Bokeh 3.4 listens for changes to a layout's children, but not to TabPanel.child.
@@ -309,11 +313,37 @@ def build_plots():
     individual = []
     hover = make_hover()
     for spec in plot_specs:
-        _, title, y_label, _, _ = spec
+        key, title, y_label, _, _ = spec
         plot = make_plot(title, y_label, shared_x, y_bounds)
         add_line(plot, spec)
         plot.add_tools(hover, CrosshairTool(overlay=cursor, syncable=False))
-        individual.append(plot)
+        if key in plot_title_notes:
+            note = plot_title_notes[key]
+            header = Div(
+                text=(
+                    f'<strong>{escape(title)}</strong> '
+                    f'<span tabindex="0" aria-label="{escape(note)}">ⓘ'
+                    f'<span class="note" role="tooltip">{escape(note)}</span></span>'
+                ),
+                margin=0, height=24, sizing_mode="stretch_width",
+                stylesheets=["""
+                    :host { z-index: 1; overflow: visible; }
+                    .bk-clearfix { padding: 4px 0 0 60px; font: 13px system-ui; color: #18302b; }
+                    [tabindex] { position: relative; color: #087d69; cursor: help; }
+                    .note { display: none; position: absolute; top: 100%; left: 0;
+                            width: 150px; transform: translateX(-65%); padding: 7px 9px;
+                            border-radius: 6px; background: #18302b; color: white;
+                            font: 12px/1.4 system-ui; }
+                    [tabindex]:hover .note, [tabindex]:focus .note { display: block; }
+                """],
+            )
+            plot.title.visible = False
+            card_styles = plot.styles
+            plot.styles = {}
+            individual.append(column(header, plot, spacing=0, sizing_mode="stretch_both",
+                                     styles={**card_styles, "background": "white"}))
+        else:
+            individual.append(plot)
 
     grid = gridplot(
         individual, ncols=3, sizing_mode="stretch_both", toolbar_location="above",
