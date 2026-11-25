@@ -1,4 +1,4 @@
-<h1><img src="assets/rit-simulator.png" alt="RIT Simulator" width="360"></h1>
+<h1 align="center"><img src="assets/rit-simulator.png" alt="RIT Simulator" width="360"></h1>
 
 An interactive Bokeh dashboard for exploring a biophysical model of combined radiotherapy and immunotherapy (RIT). Change the treatment schedule or model parameters to simulate the response of a primary tumor and an abscopal tumor.
 
