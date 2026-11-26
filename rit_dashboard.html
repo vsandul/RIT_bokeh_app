@@ -39,7 +39,6 @@
   }
   .rit-brand { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
   .rit-brand img { display: block; height: clamp(44px, 4vw, 52px); width: auto; }
-  .rit-header p { font-size: 12px; color: var(--muted); }
   .rit-layout {
     display: grid;
     grid-template-columns: clamp(260px, 21vw, 332px) minmax(0, 1fr);
@@ -148,7 +147,6 @@
   <header class="rit-header">
     <div class="rit-brand">
       <h1><img src="data:image/png;base64,{{ logo_png }}" alt="RIT Simulator"></h1>
-      <p>Radio-immunotherapy · Tumor–immune dynamics</p>
     </div>
     <div class="rit-plot-options" role="group" aria-label="Plot view">
       {{ embed(roots.plot_controls) }}
